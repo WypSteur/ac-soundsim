@@ -1,0 +1,31 @@
+format: soundsim-engine
+version: 1
+
+identity:
+  id: subaru_fa20_gt86_baseline
+  manufacturer: Subaru/Toyota
+  family: FA
+  code: FA20 / 4U-GSE
+
+geometry:
+  layout: boxer
+  cylinders: 4
+  displacement_cc: 1998
+  bore_mm: 86.0
+  stroke_mm: 86.0
+
+crankshaft:
+  firing_order: [1, 3, 2, 4]
+
+aspiration:
+  type: naturally_aspirated
+
+defaults:
+  idle_rpm: 700
+  redline_rpm: 7400
+
+provenance:
+  note: >-
+    Baseline development profile for the Kunos Toyota GT86 target. Runtime values
+    available from Assetto Corsa (especially idle/redline/torque/load-related data)
+    must override profile defaults when reliable.

@@ -1,0 +1,27 @@
+/build/
+/out/
+/logs/
+/vendor/engine-sim/
+/vendor/csp-lua-sdk/
+integration/csp/apps/ac_soundsim_bridge/runtime_report.txt
+.vs/
+.idea/
+*.user
+*.suo
+/tools/build-runtime/
+/artifacts/
+
+# Local tools, generated files, archives and credentials are not source assets.
+__pycache__/
+*.py[cod]
+*.exe
+*.dll
+*.pdb
+*.obj
+*.lib
+*.zip
+*.7z
+.env
+.env.*
+!.env.example
+!.env.sample

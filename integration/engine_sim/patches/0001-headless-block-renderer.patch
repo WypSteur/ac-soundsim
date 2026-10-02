@@ -1,0 +1,134 @@
+diff --git a/include/synthesizer.h b/include/synthesizer.h
+index ffbf4a2..6839f79 100644
+--- a/include/synthesizer.h
++++ b/include/synthesizer.h
+@@ -77,6 +77,8 @@ class Synthesizer {
+ 
+         void audioRenderingThread();
+         void renderAudio();
++        // Single-threaded offline/block renderer. Never mix with rendering thread.
++        int renderAudioSynchronous(int16_t *target, int capacity);
+ 
+         double getLatency() const;
+ 
+diff --git a/src/engine.cpp b/src/engine.cpp
+index 15e326d..8d2a7f7 100644
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -4,7 +4,9 @@
+ #include "../include/constants.h"
+ #include "../include/units.h"
+ #include "../include/fuel.h"
++#ifndef ACSOUNDSIM_HEADLESS_ONLY
+ #include "../include/piston_engine_simulator.h"
++#endif
+ 
+ #include <cmath>
+ #include <assert.h>
+@@ -384,6 +386,12 @@ int Engine::getMaxDepth() const {
+ }
+ 
+ Simulator *Engine::createSimulator(Vehicle *vehicle, Transmission *transmission) {
++#ifdef ACSOUNDSIM_HEADLESS_ONLY
++    // SoundSim supplies kinematics directly; no vehicle RPM solver is linked.
++    (void)vehicle;
++    (void)transmission;
++    return nullptr;
++#else
+     PistonEngineSimulator *simulator = new PistonEngineSimulator;
+     Simulator::Parameters simulatorParams;
+     simulatorParams.systemType = Simulator::SystemType::NsvOptimized;
+@@ -393,6 +401,7 @@ Simulator *Engine::createSimulator(Vehicle *vehicle, Transmission *transmission)
+     simulator->setFluidSimulationSteps(8);
+ 
+     return static_cast<Simulator *>(simulator);
++#endif
+ }
+ 
+ double Engine::getRpm() const {
+diff --git a/src/jitter_filter.cpp b/src/jitter_filter.cpp
+index 855718c..e5fbb40 100644
+--- a/src/jitter_filter.cpp
++++ b/src/jitter_filter.cpp
+@@ -8,7 +8,7 @@ JitterFilter::JitterFilter() {
+ }
+ 
+ JitterFilter::~JitterFilter() {
+-    /* void */
++    delete[] m_history;
+ }
+ 
+ void JitterFilter::initialize(
+diff --git a/src/synthesizer.cpp b/src/synthesizer.cpp
+index 8cf6d74..3f2ac24 100644
+--- a/src/synthesizer.cpp
++++ b/src/synthesizer.cpp
+@@ -1,7 +1,8 @@
+ #include "../include/synthesizer.h"
+ 
+ #include "../include/utilities.h"
+-#include "../include/delta.h"
++#include <algorithm>
++#include <stdexcept>
+ 
+ #include <cassert>
+ #include <cmath>
+@@ -14,6 +15,7 @@ Synthesizer::Synthesizer() {
+     m_inputChannelCount = 0;
+     m_inputBufferSize = 0;
+     m_inputWriteOffset = 0.0;
++    m_latency = 0;
+     m_inputSamplesRead = 0;
+ 
+     m_audioBufferSize = 0;
+@@ -46,6 +48,7 @@ void Synthesizer::initialize(const Parameters &p) {
+     m_inputSamplesRead = 0;
+ 
+     m_inputWriteOffset = 0;
++    m_lastInputSampleOffset = 0;
+     m_processed = true;
+ 
+     m_audioBuffer.initialize(p.audioBufferSize);
+@@ -127,6 +130,7 @@ void Synthesizer::destroy() {
+     for (int i = 0; i < m_inputChannelCount; ++i) {
+         m_inputChannels[i].data.destroy();
+         m_filters[i].convolution.destroy();
++        delete[] m_inputChannels[i].transferBuffer;
+     }
+ 
+     delete[] m_inputChannels;
+@@ -259,6 +263,21 @@ double Synthesizer::getLatency() const {
+     return (double)m_latency / m_audioSampleRate;
+ }
+ 
++int Synthesizer::renderAudioSynchronous(int16_t *target, int capacity) {
++    if (m_thread != nullptr || m_inputChannelCount <= 0 || capacity < 0 || (capacity > 0 && target == nullptr)) {
++        throw std::logic_error("Invalid synchronous Synthesizer use");
++    }
++    const int n = std::min(capacity, int(m_inputChannels[0].data.size()));
++    for (int i = 0; i < m_inputChannelCount; ++i) {
++        m_inputChannels[i].data.readAndRemove(n, m_inputChannels[i].transferBuffer);
++        m_filters[i].airNoiseLowPass.setCutoffFrequency(
++            m_audioParameters.airNoiseFrequencyCutoff, m_audioSampleRate);
++        m_filters[i].jitterFilter.setJitterScale(m_audioParameters.inputSampleNoise);
++    }
++    for (int i = 0; i < n; ++i) target[i] = renderAudio(i);
++    return n;
++}
++
+ int Synthesizer::inputDelta(int s1, int s0) const {
+     return (s1 < s0)
+         ? m_inputBufferSize - s0 + s1
+@@ -319,7 +338,11 @@ int16_t Synthesizer::renderAudio(int inputSample) {
+ 
+     m_levelingFilter.p_target = m_audioParameters.levelerTarget;
+     const float v_leveled = m_levelingFilter.f(signal) * m_audioParameters.volume;
+-    int r_int = std::lround(v_leveled);
++    if (!std::isfinite(v_leveled)) {
++        throw std::runtime_error("Engine-Sim synthesizer produced non-finite PCM");
++    }
++    // Clamp before conversion, including values outside the range of long/int.
++    int r_int = std::lround(std::clamp(v_leveled, float(INT16_MIN), float(INT16_MAX)));
+     if (r_int > INT16_MAX) {
+         r_int = INT16_MAX;
+     }

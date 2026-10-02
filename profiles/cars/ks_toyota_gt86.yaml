@@ -1,0 +1,26 @@
+format: soundsim-car
+version: 1
+
+identity:
+  car_id: ks_toyota_gt86
+
+engine:
+  profile: subaru_fa20_gt86_baseline
+
+runtime:
+  idle_rpm: auto
+  redline_rpm: auto
+  torque_curve: auto
+  boost: auto
+
+audio:
+  engine_int: soundsim
+  engine_ext: soundsim
+  turbo: native
+  backfire: native
+  transmission: native
+  gear: native
+  tyres: native
+  wind: native
+  collision: native
+  limiter: hybrid

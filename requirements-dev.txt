@@ -1,0 +1,3 @@
+# Optional local build/test tooling; not distributed with the runtime.
+cmake==3.31.10
+lupa==2.6
