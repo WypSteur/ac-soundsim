@@ -14,9 +14,10 @@ using namespace soundsim;
 void check(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 
 struct Result { std::vector<std::int16_t> pcm; EngineDiagnostics diagnostics; };
-Result hold(double throttle, bool ignition, EnginePreset preset=EnginePreset::legacyM1) {
+Result hold(double throttle, bool ignition, EnginePreset preset=EnginePreset::legacyM1,
+            const EngineProfileV1* customProfile=nullptr) {
     std::srand(12345);
-    HeadlessEngine engine(makeFa20Baseline(),preset);
+    HeadlessEngine engine(customProfile ? *customProfile : makeFa20Baseline(),preset);
     Result r;
     std::array<std::int16_t, HeadlessEngine::kMaximumBlockFrames> block{};
     for (int b = 0; b < 450; ++b) {
@@ -48,6 +49,11 @@ int main() {
         const auto referenceOff=hold(0.8,false,EnginePreset::fa20ReferenceFull);
         const auto referenceLow=hold(0.05,true,EnginePreset::fa20ReferenceFull);
         check(reference.pcm==referenceRepeat.pcm,"seeded public-core reference not repeatable");
+        auto changedProfile = makeFa20Baseline(); changedProfile.referenceAudio.masterVolume = 0.125;
+        const auto changedAudio = hold(0.8,true,EnginePreset::fa20ReferenceFull,&changedProfile);
+        check(reference.pcm!=changedAudio.pcm,"profile source volume not applied by synthesizer");
+        check(reference.diagnostics.burntFuelKg==changedAudio.diagnostics.burntFuelKg,
+              "source DSP profile unexpectedly changed combustion");
         check(reference.pcm!=high.pcm && reference.pcm!=referenceOff.pcm,"reference DSP/combustion not active");
         check(reference.diagnostics.burntFuelKg>referenceLow.diagnostics.burntFuelKg,"reference throttle did not affect combustion");
         check(reference.diagnostics.burntFuelKg>0 && referenceOff.diagnostics.burntFuelKg==0,"reference ignition did not affect combustion");

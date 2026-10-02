@@ -1,102 +1,90 @@
 # Implementation plan — GT86 / FA20 vertical slice
 
-## M0 — Observable baseline (UI/state confirmed 2026-10-02)
+## Consolidated state after the external audit
 
-User confirmed correct GT86 ID/target match and dynamic RPM/throttle/gear.
-C++ build/smoke test also passed locally. CSP log presence remains uninspected.
+The repository remains public by explicit user decision. Preserve the accepted
+bridge 0.0.10 listening base and the complementary FMOD/mod event levels.
+No second engine/car and no independent intake audio before the M5 gate.
 
-**Exit criteria**
+## M0 — Observable baseline (user-confirmed)
 
-- C++ scaffold builds and smoke test passes.
-- C++ logger creates timestamped logs.
-- CSP bridge detects `ks_toyota_gt86`.
-- CSP bridge shows changing RPM and throttle.
-- CSP logs carry `[ACSoundSim]` tag once per second.
+GT86 identity and dynamic RPM/throttle/gear are confirmed. Tagged bridge reports,
+C++ logs and smoke tests exist.
 
-## M1 — Engine-Sim headless, externally-driven crank (offline PASS)
+## M1 — Actual public Engine-Sim, external crank (offline qualified)
 
-Implemented through an analytical kinematic adapter and pinned upstream acoustic
-slice. Four automated tests include stable `800 -> 7400 -> 800 RPM` PCM output.
-See `m1-headless.md` for measurements, assumptions and reproduction.
+Pinned public acoustic core with imposed crank/piston kinematics. AC is RPM
+authority; no second vehicle/transmission/mechanical-speed solution.
+Fixed simulation 22050Hz, fluid substeps8, mono44100Hz, blocks294 / 150Hz.
+Normal runtime uses the explicit FA20D reference port plus smooth_39 IR;
+legacy M1 and dry remain comparison presets. Not a dynamic .mr interpreter,
+not a bit-identical Community Edition app, not real-engine engineering validation.
+See m1-headless.md and acoustic-audit.md.
 
-**Goal**: remove Engine-Sim vehicle RPM authority.
+## M2 — AC IPC (implemented and observed live)
 
-Required logs:
+192-byte state / 368-byte status, seqlocks, stale/invalid/schema guards,
+reset/session detection and external RPM. Separate-process tests cover running,
+RPM change, pause, reset, wrong car, stale writer, NaN, replay and graceful stop.
+Native driving/listening qualification is still M5.
 
-- upstream revision;
-- engine profile loaded;
-- requested RPM;
-- effective crank angular velocity;
-- integrated crank phase;
-- simulation step rate;
-- generated audio frames;
-- NaN/instability guards.
+## M3 — PCM to CSP (implemented; native output observed)
 
-**Exit criteria**: offline harness sweeps 800 → 7400 → 800 RPM with no mechanical vehicle model and produces stable exhaust-oriented PCM.
+Official CSP Mumble stream contract, continuous mono float32 PCM, AudioEvent 3D.
+Source position/velocity follow the GT86 exhaust; distance/cones are adjustable,
+Doppler requested. Actual native Doppler/attenuation/mix/latency still need M5.
+Ring capacity is NOT latency. No consumer cursor means fill/consumer underrun/
+overrun are unknown. Report producer deadline misses under their own name.
+Source PCM peak/RMS meter is producer-side, not final output measurement.
+See m2-m3-live.md and research/csp-stream-format.md.
 
-## M2 — AC runtime IPC (implemented; observed in GT86)
+## M4 — Hybrid native/listener policy (implemented; base accepted)
 
-**Goal**: publish `RuntimeCarStateV1` from CSP/bridge side to C++.
+Only EngineInt/EngineExt gains reversibly zeroed when our valid stream takes over.
+All complementary FMOD events/mod levels untouched, no three-effect whitelist.
+Whole engine events might contain other bundled effects; universal mod
+compatibility and bypass of native CPU computation are not established.
 
-Explicit 192-byte wire ABI, seqlock/schema guards, reader-local age, reset/session
-handling and live external RPM are implemented. Six C++ tests plus a LuaJIT host
-test pass; actual GT86 idle RPM and pause-phase freeze were observed. See
-`m2-m3-live.md`. Dynamic pedal sweep remains a final driving/listening check.
+Bridge0.0.10: separate cabin EQ/body resonance/trim, smooth camera transition,
+3D tailpipe controls, gain8 before an optional own -1dB peak guard, no makeup.
+User accepts interior/exterior base, requests strong cabin filtering.
+Source PCM remains unchanged. DSP units/native isolated graph tested, not
+CSP graph ordering or global output headroom. See cabin-spatial-calibration.md.
 
-Required logs:
+## M5 — Drivable/native qualification (OPEN)
 
-- MMF opened/created;
-- schema version;
-- writer/reader sequence;
-- state age;
-- dropped/torn state detection;
-- reset/session transition.
+Read m5-validation.md and use the read-only capture_m5.py collector.
+Required: fast acceleration, gear changes, fast decel, live fixed-camera fly-by,
+Doppler, distance/orientation, cabin transitions, complementary FMOD mix,
+fallback/restart and perceptual latency. Document actual settings and versions.
 
-## M3 — PCM stream to CSP (implemented; output transport verified)
+Synthetic ZOH characterization at60/90/144Hz checks phase, cadence, source rails
+and gas guards. It also reports ignition sequence anomalies during fast decel.
+These counters are NOT certified by a green test result: characterize the public
+timing-advance threshold with external RPM, then qualify/fix before intake.
+No automatic test or 1Hz snapshot proves perceptual latency or native propagation.
+M5 closes only with documented dynamic/native acceptance, not only compilation.
 
-**Goal**: create CSP audio stream with `{stream={name,size}, use3D=true}` and feed PCM continuously.
+## Repository consolidation / data-driven extraction
 
-Official CSP Mumble producer supplied the actual ABI. Real FA20 mono float32
-PCM is connected to a valid/playing 3D event; a separate diagnostic 440 Hz tone
-was measured at the output with SoundSim-only mute/unmute. See
-`research/csp-stream-format.md`. Native engine remains ON; subjective fidelity,
-fly-by/Doppler/distance and latency qualification belong to M5. Consumer fill and
-actual underrun/overrun counts are unavailable: log that limitation explicitly,
-and expose producer deadline misses under their own name instead.
+Windows Release/Debug CI: pinned public bootstrap + CTest + mocked LuaJIT bridge
++ Python audit tools. No AC, CSP, proprietary FMOD, personal recordings or logs.
+Third-party notices retained; own license is a user decision, still pending.
 
-Required logs:
+First profile tranche implemented: real startup YAML loading, strict errors,
+identity/geometry/default RPM/source DSP. All three seeded source PCM audits
+match the previous baseline exactly on the same MSVC Release toolchain.
+No I/O/parsing during render. Runtime --profile supports an explicit file.
+See profile-extraction.md for residual C++ specialization and portability limits.
 
-- audio MMF size;
-- producer/consumer state;
-- sample rate / format;
-- fill level;
-- underrun/overrun count;
-- CSP event valid/playing;
-- emitter position/velocity sanity.
+After M5, continue extracting fuel/head/cam/flow/intake/exhaust parameters in
+small regress-tested groups. Do not advertise generic engine support while
+the FA20-only topology/resolver remains hardcoded.
 
-## M4 — Native engine policy
+## Later — Independent intake source
 
-**Goal**: suppress native continuous engine while preserving useful events.
-
-Policy baseline:
-
-```text
-engine_int/ext  -> SoundSim
-backfire        -> native
-transmission    -> native
-tyres/wind      -> native
-limiter         -> hybrid candidate
-```
-
-## M5 — First drivable vertical slice
-
-**Success**:
-
-- start Kunos GT86;
-- correct profile selected;
-- SoundSim follows live RPM;
-- native continuous engine is absent;
-- native event sounds remain;
-- 3D source follows car;
-- track camera/fly-by exhibits CSP Doppler and attenuation;
-- logs identify every active subsystem and fallback.
+Experimental new acoustic model from existing intake pressure/flow, not a
+filtered exhaust duplicate or a second engine simulation. Two synchronized
+source buses, separate front/rear CSP3D emitters, gain/transfer/solo controls.
+The public upstream does not ship a ready intake PCM bus. Keep AC/CSP propagation
+and source acoustics separate. Begin only after the M5 gate above.

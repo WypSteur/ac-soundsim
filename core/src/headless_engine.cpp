@@ -25,13 +25,7 @@ constexpr std::array<int, 4> labels{1, 3, 2, 4}; // upstream array layout: bank0
 constexpr std::array<double, 4> firingPhase{0, pi, 2 * pi, 3 * pi};
 
 void validateProfile(const EngineProfileV1& p) {
-    if (p.schemaVersion != 1 || p.id != "subaru_fa20_gt86_baseline" ||
-        p.cylinders != 4 || p.firingOrderCount != 4 ||
-        p.firingOrder[0] != 1 || p.firingOrder[1] != 3 ||
-        p.firingOrder[2] != 2 || p.firingOrder[3] != 4 ||
-        p.boreMm != 86.0F || p.strokeMm != 86.0F) {
-        throw std::invalid_argument("M1 adapter supports the FA20 baseline profile only");
-    }
+    validateEngineProfile(p);
 }
 
 void buildLobe(Function& f, double lift) {
@@ -125,9 +119,9 @@ struct HeadlessEngine::Impl {
         ep.redline = units::rpm(p.redlineRpm);
         ep.throttle = throttle;
         ep.initialSimulationFrequency = kSimulationRate;
-        ep.initialHighFrequencyGain = reference() ? 0.05 : 0.01;
-        ep.initialNoise = reference() ? 1 : 0;
-        ep.initialJitter = reference() ? 0.5 : 0;
+        ep.initialHighFrequencyGain = reference() ? p.referenceAudio.highFrequencyMix : 0.01;
+        ep.initialNoise = reference() ? p.referenceAudio.airNoise : 0;
+        ep.initialJitter = reference() ? p.referenceAudio.inputSampleNoise : 0;
         engine.initialize(ep);
         engineInitialized = true;
 
@@ -335,14 +329,14 @@ struct HeadlessEngine::Impl {
         if (reference()) {
             // App default 1 clips this externally-driven reference schedule.
             // Fixed -12.04 dB pre-quantization headroom, NOT PCM normalization.
-            sp.initialAudioParameters.volume = 0.25f;
-            sp.initialAudioParameters.levelerTarget = 30000;
-            sp.initialAudioParameters.dF_F_mix = 0.05f;
+            sp.initialAudioParameters.volume = static_cast<float>(p.referenceAudio.masterVolume);
+            sp.initialAudioParameters.levelerTarget = static_cast<float>(p.referenceAudio.levelerTarget);
+            sp.initialAudioParameters.dF_F_mix = static_cast<float>(p.referenceAudio.highFrequencyMix);
         }
         if (preset == EnginePreset::fa20ReferenceFull) {
-            sp.initialAudioParameters.airNoise = 1;
-            sp.initialAudioParameters.inputSampleNoise = 0.5;
-            sp.initialAudioParameters.convolution = 1;
+            sp.initialAudioParameters.airNoise = static_cast<float>(p.referenceAudio.airNoise);
+            sp.initialAudioParameters.inputSampleNoise = static_cast<float>(p.referenceAudio.inputSampleNoise);
+            sp.initialAudioParameters.convolution = static_cast<float>(p.referenceAudio.convolution);
         }
         synth.initialize(sp);
         synthInitialized = true;
@@ -350,7 +344,7 @@ struct HeadlessEngine::Impl {
         // avoids null/zero-length convolution without distributing any samples.
         if (preset == EnginePreset::fa20ReferenceFull) {
             const auto impulse = readMonoPcm16(ACSOUNDSIM_FA20_IR_PATH);
-            synth.initializeImpulseResponse(impulse.data(), int(impulse.size()), 0.001f, 0);
+            synth.initializeImpulseResponse(impulse.data(), int(impulse.size()), static_cast<float>(p.referenceAudio.impulseResponseGain), 0);
         } else {
             const std::int16_t identityImpulse = 32767;
             synth.initializeImpulseResponse(&identityImpulse, 1, 1, 0);

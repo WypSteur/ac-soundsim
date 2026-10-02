@@ -14,9 +14,26 @@ python -m pip install --target tools/build-runtime -r requirements-dev.txt
 .\scripts\test_bridge.ps1
 ```
 
-See `CODEX_HANDOFF.md` before continuing development. The latest user-approved
-listening base is bridge0.0.10; the separate intake audio bus is the next proposed
-feature, not implemented yet.
+See `CODEX_HANDOFF.md` before continuing development. The user-approved listening
+base is bridge0.0.10. Next gate is M5 dynamic/native qualification, then further
+FA20 profile extraction, then a separate intake bus (not implemented).
+The repository remains public by explicit user decision.
+
+## Audit consolidation
+
+Windows offline CI builds Release/Debug, bootstraps pinned public dependencies,
+runs CTest, LuaJIT bridge mocks and Python audit-tool tests. It does not install
+or qualify AC/CSP. The FA20 YAML is now really loaded at startup; first extraction
+covers identity/geometry/defaults/source DSP, with unchanged baseline PCM.
+Combustion/conduit parameters and the car resolver remain C++-specialized.
+See `docs/profile-extraction.md`.
+
+M5 remains open: `docs/m5-validation.md` has the live listening checklist and
+read-only evidence collector. Rapid synthetic deceleration exposed an ignition
+sequence anomaly with stepped external RPM; this is explicitly reported by the
+dynamic characterization test, not certified as correct firing by a green CI.
+No intake work starts before that qualification. Third-party license notices are
+under `licenses/`; the license for our own code still awaits the user's choice.
 
 Development repository scaffold for a data-driven Assetto Corsa engine sound simulator based on the open-source Engine-Sim core.
 
@@ -26,7 +43,7 @@ Development repository scaffold for a data-driven Assetto Corsa engine sound sim
 - Engine: FA20 / 4U-GSE
 - Architecture goal: Assetto Corsa owns physics/RPM; SoundSim generates engine acoustics; CSP owns 3D propagation.
 
-## Current milestone: M2/M3 — live IPC and CSP PCM stream
+## Current milestone: M5 qualification — M0–M4 implemented
 
 The GT86 CSP bridge's identity and dynamic RPM/throttle/gear display were confirmed
 by the user on 2026-10-02. M1 now builds the actual Engine-Sim acoustic core with
@@ -36,7 +53,7 @@ externally imposed crank/piston kinematics and synchronous PCM rendering.
 .\scripts\build_m1.ps1 -GenerateAudio
 ```
 
-This builds, runs seven tests and generates an `800 -> 7400 -> 800 RPM` recording
+This builds, runs nine C++ tests and generates an `800 -> 7400 -> 800 RPM` recording
 under `artifacts/m1/`. See `docs/m1-headless.md` for provenance, architecture,
 acceptance evidence and provisional FA20 acoustic parameters.
 

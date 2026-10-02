@@ -8,11 +8,26 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ACSOUNDSIM_BUILD_TESTS "Build AC SoundSim tests" ON)
 option(ACSOUNDSIM_ENGINE_SIM "Build pinned headless Engine-Sim adapter" ON)
 
+include(FetchContent)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(yaml_cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG f7320141120f720aecc4c32be25586e7da9eb978 # 0.8.0
+)
+FetchContent_MakeAvailable(yaml_cpp)
+
 add_library(soundsim_core STATIC
     core/src/logger.cpp
+    core/src/engine_profile.cpp
     core/src/externally_driven_crank.cpp
     core/src/ipc.cpp
 )
+target_link_libraries(soundsim_core PRIVATE yaml-cpp::yaml-cpp)
+target_compile_definitions(soundsim_core PRIVATE
+    ACSOUNDSIM_FA20_PROFILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/profiles/engines/subaru_fa20.yaml")
 
 target_include_directories(soundsim_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/core/include
@@ -69,6 +84,11 @@ if(ACSOUNDSIM_BUILD_TESTS)
     add_executable(soundsim-crank-test tests/crank.cpp)
     target_link_libraries(soundsim-crank-test PRIVATE soundsim_core)
     add_test(NAME soundsim-crank-test COMMAND soundsim-crank-test)
+    add_executable(soundsim-profile-test tests/profile.cpp)
+    target_link_libraries(soundsim-profile-test PRIVATE soundsim_core yaml-cpp::yaml-cpp)
+    target_compile_definitions(soundsim-profile-test PRIVATE
+        ACSOUNDSIM_TEST_PROFILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/profiles/engines/subaru_fa20.yaml")
+    add_test(NAME soundsim-profile-test COMMAND soundsim-profile-test)
     if(ACSOUNDSIM_ENGINE_SIM)
         add_executable(soundsim-headless-test tests/headless.cpp)
         target_link_libraries(soundsim-headless-test PRIVATE soundsim_engine)
@@ -77,5 +97,9 @@ if(ACSOUNDSIM_BUILD_TESTS)
         set_tests_properties(soundsim-reference-audit PROPERTIES TIMEOUT 180)
         add_test(NAME soundsim-m1-sweep COMMAND soundsim-m1 --output ${CMAKE_BINARY_DIR}/m1-test)
         set_tests_properties(soundsim-m1-sweep PROPERTIES TIMEOUT 180)
+        add_executable(soundsim-dynamic-test tests/dynamic.cpp)
+        target_link_libraries(soundsim-dynamic-test PRIVATE soundsim_engine)
+        add_test(NAME soundsim-dynamic-characterization COMMAND soundsim-dynamic-test)
+        set_tests_properties(soundsim-dynamic-characterization PROPERTIES TIMEOUT 180)
     endif()
 endif()

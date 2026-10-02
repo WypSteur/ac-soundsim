@@ -3,10 +3,27 @@
 > **Projet** : Sound simulation data-driven pour Assetto Corsa  
 > **Base acoustique** : fork de `ange-yaghi/engine-sim`  
 > **Intégration cible** : Assetto Corsa + Custom Shaders Patch (CSP)  
-> **Statut** : M0/M1 validés ; M2 live et M3 PCM CSP implémentés ; M4 suivant  
+> **Statut** : M0–M4 implémentés ; base cabine/extérieur acceptée ; M5 ouverte  
 > **Dernière consolidation** : 2026-10-02
 
 ---
+
+## État consolidé après audit externe
+
+Le détail ci-dessous conserve des décisions historiques et des éléments cibles
+non implémentés. L'état exécutable actuel est dans `implementation-plan.md` et
+`CODEX_HANDOFF.md`. Le YAML FA20 est maintenant chargé au démarrage pour identité,
+géométrie, defaults et DSP source ; le résolveur voiture et beaucoup de paramètres
+physiques restent spécialisés en C++. Voir `profile-extraction.md`.
+
+EngineInt/EngineExt sont supprimés par gain réversible uniquement lorsque le
+stream SoundSim est utilisable ; tous les autres événements FMOD restent intacts.
+Cela ne prouve pas que le calcul natif soit évité ni que les événements moteur
+de tous les mods ne contiennent que du continu. Un seul bus mono échappement ;
+l'admission indépendante reste future. La base cabine/extérieur est acceptée,
+mais M5 inclut encore dynamique d'allumage, fly-by, distance, mix et latence.
+Une anomalie d'allumage sur décélération synthétique rapide est consignée dans
+`m5-validation.md`. Aucun renderer audio CI ne remplace les essais natifs CSP.
 
 ## 0. Résumé exécutif
 

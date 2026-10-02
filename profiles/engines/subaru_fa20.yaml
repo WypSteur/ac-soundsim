@@ -24,6 +24,17 @@ defaults:
   idle_rpm: 700
   redline_rpm: 7400
 
+reference_audio:
+  # Source parameters previously in C++. No listener EQ/output gain here.
+  master_volume: 0.25
+  leveler_target: 30000
+  high_frequency_mix: 0.05
+  air_noise: 1.0
+  input_sample_noise: 0.5
+  convolution: 1.0
+  impulse_response: smooth_39
+  impulse_response_gain: 0.001
+
 provenance:
   note: >-
     Baseline development profile for the Kunos Toyota GT86 target. Runtime values

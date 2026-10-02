@@ -2,9 +2,22 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 namespace soundsim {
+
+// Source DSP only. Cabin transfer, output gain and spatial propagation belong
+// to the listener/CSP, not to this engine profile.
+struct ReferenceAudioV1 {
+    double masterVolume{0.25};
+    double levelerTarget{30000};
+    double highFrequencyMix{0.05};
+    double airNoise{1};
+    double inputSampleNoise{0.5};
+    double convolution{1};
+    double impulseResponseGain{0.001};
+};
 
 struct EngineProfileV1 {
     static constexpr std::uint32_t kSchemaVersion = 1;
@@ -25,23 +38,14 @@ struct EngineProfileV1 {
 
     float idleRpm{0.0F};
     float redlineRpm{0.0F};
+    ReferenceAudioV1 referenceAudio;
 };
 
-inline EngineProfileV1 makeFa20Baseline() {
-    EngineProfileV1 p;
-    p.id = "subaru_fa20_gt86_baseline";
-    p.manufacturer = "Subaru/Toyota";
-    p.engineCode = "FA20 / 4U-GSE";
-    p.layout = "boxer-4";
-    p.cylinders = 4;
-    p.displacementCc = 1998.0F;
-    p.boreMm = 86.0F;
-    p.strokeMm = 86.0F;
-    p.firingOrder = {1, 3, 2, 4};
-    p.firingOrderCount = 4;
-    p.idleRpm = 700.0F;
-    p.redlineRpm = 7400.0F; // fallback only; AC data should override this.
-    return p;
-}
+// Startup-only file IO; invalid/missing profiles fail explicitly, never silently
+// revert to duplicated C++ parameters. The FA20-only adapter is still deliberate.
+EngineProfileV1 loadEngineProfile(const std::filesystem::path& path);
+void validateEngineProfile(const EngineProfileV1& profile);
+std::filesystem::path defaultEngineProfilePath();
+EngineProfileV1 makeFa20Baseline();
 
 } // namespace soundsim

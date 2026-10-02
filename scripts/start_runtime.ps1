@@ -1,9 +1,13 @@
-param([int]$Seconds = 0, [switch]$DiagnosticTone, [switch]$LegacyModel)
+param([int]$Seconds = 0, [switch]$DiagnosticTone, [switch]$LegacyModel, [string]$Profile = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $binary = Join-Path $projectRoot 'build\Release\soundsim-runtime.exe'
 if (-not (Test-Path -LiteralPath $binary)) { throw 'Build first with scripts/build_m1.ps1.' }
 $arguments = @('--logs', ('"' + (Join-Path $projectRoot 'logs\runtime') + '"'))
+if ($Profile) {
+  $profilePath = (Resolve-Path -LiteralPath $Profile -ErrorAction Stop).Path
+  $arguments += @('--profile', ('"' + $profilePath + '"'))
+}
 if ($Seconds -lt 0) { throw 'Seconds must be non-negative.' }
 if ($Seconds -gt 0) { $arguments += @('--seconds', $Seconds) }
 if ($DiagnosticTone) {

@@ -52,6 +52,29 @@ distance / Doppler / cone / occlusion / reverb
 
 ## Current status
 
+### External audit consolidation — current priority
+
+Repository `https://github.com/WypSteur/ac-soundsim` remains PUBLIC, explicitly
+approved by the user. Initial private request below is historical. Own-code
+license choice is pending; do not invent permission or relicense third parties.
+Windows Release/Debug offline CI added, with pinned action commits and public
+dependencies. No AC/CSP or proprietary FMOD is available/required in that CI.
+
+FA20 YAML really loads at startup now (identity/geometry/default RPM/source DSP).
+See `docs/profile-extraction.md`. Physics/cam/flow/fuel/conduits and car resolver
+still C++-specialized. Before/after seeded source PCM matches exactly for all
+three audit presets on the same MSVC Release host. No Lua/listener changes.
+
+M5 is NOT closed. Read `docs/m5-validation.md`: current native listening checklist,
+read-only low-rate snapshot collector, and synthetic ZOH dynamic characterization.
+That characterization exposes an ignition sequence anomaly during fast decel at
+90Hz; gas guards/PCM rails/phase pass, firing correctness does NOT. Investigate
+the upstream timing-advance threshold under stepped external RPM before intake.
+Do not turn CI green into a claim of native Doppler, mix or latency validation.
+
+Order: dynamic ignition qualification + native M5 -> further profile extraction
+-> experimental independent intake source. No second engine/car yet.
+
 ### User listening validation — bridge 0.0.10 baseline
 
 On2026-10-02 user validated the current interior/exterior behavior as a useful
@@ -64,13 +87,13 @@ this listening reference before changing the preset/persistence. User says timbr
 is clearly not stock, so neither real-world GT86 fidelity nor complete native
 mix headroom/latency/fly-by is validated by this feedback.
 
-Next proposed task: independent admission PCM from existing simulated intake
+Later task, AFTER the M5 gate: independent admission PCM from existing simulated intake
 pressure/flow, two synchronized source buses and two CSP3D emitters (front airbox,
 rear exhaust), independent gain/transfer/solo controls. Not a filtered duplicate
 of exhaust; no second engine/vehicle simulation. Public upstream has intake gas
 state but no ready acoustic output, so that new acoustic model is experimental.
-No intake implementation has started. User requested private repository + baseline
-commit BEFORE continuing feature development.
+No intake implementation has started. Repository + baseline commit were requested
+before feature work; the user has since explicitly approved PUBLIC visibility.
 
 ### Current listener revision — bridge 0.0.10
 

@@ -30,13 +30,14 @@ double clockSeconds() {
 int run(int argc, char** argv) {
     std::string stateName = ipc::kStateName, statusName = ipc::kStatusName;
     std::filesystem::path logs = "logs/runtime";
+    std::filesystem::path profilePath = defaultEngineProfilePath();
     double seconds = 0;
     bool diagnosticTone = false;
     bool legacyModel = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--help") {
-            std::cout << "soundsim-runtime [--seconds N] [--logs directory] [--state-name name] [--status-name name] [--diagnostic-tone] [--legacy-model]\n";
+            std::cout << "soundsim-runtime [--seconds N] [--logs directory] [--profile yaml] [--state-name name] [--status-name name] [--diagnostic-tone] [--legacy-model]\n";
             return 0;
         }
         if (arg == "--diagnostic-tone") { diagnosticTone = true; continue; }
@@ -44,6 +45,7 @@ int run(int argc, char** argv) {
         if (i + 1 >= argc) throw std::invalid_argument("missing option value");
         const std::string value = argv[++i];
         if (arg == "--logs") logs = value;
+        else if (arg == "--profile") profilePath = value;
         else if (arg == "--state-name") stateName = value;
         else if (arg == "--status-name") statusName = value;
         else if (arg == "--seconds") {
@@ -58,7 +60,14 @@ int run(int argc, char** argv) {
     ResetEvent(stop.value);
     Logger::instance().initialize(logs, "soundsim-runtime");
     SS_LOG_INFO("bootstrap", "M2/M3 Windows x64; Engine-Sim=" + std::string(HeadlessEngine::upstreamRevision()));
-    SS_LOG_INFO("profile", legacyModel ? "ks_toyota_gt86 -> legacy provisional M1" : "ks_toyota_gt86 -> FA20D reference port; IR smooth_39 volume=0.001; master=0.25; public core; AC RPM authority; calibration pending");
+    const auto profile = loadEngineProfile(profilePath); // startup only, no hot reload
+    std::ostringstream profileInfo;
+    profileInfo << "loaded=" << std::filesystem::absolute(profilePath).string() << " schema=" << profile.schemaVersion
+        << " ks_toyota_gt86 -> " << profile.id << (legacyModel ? " legacy provisional M1" : " FA20D reference port")
+        << "; reference IR smooth_39 gain=" << profile.referenceAudio.impulseResponseGain
+        << " master=" << profile.referenceAudio.masterVolume << " levelerTarget=" << profile.referenceAudio.levelerTarget
+        << "; public core; AC RPM authority; calibration pending";
+    SS_LOG_INFO("profile", profileInfo.str());
     const auto generation = GetTickCount64();
     const auto audioName = "AcTools.ACSoundSim.Audio." + std::to_string(GetCurrentProcessId()) + "." + std::to_string(generation);
     ipc::CspStream stream(audioName);
@@ -118,7 +127,7 @@ int run(int argc, char** argv) {
             }
         } else if (mode == ipc::Mode::running) {
             try {
-                if (!engine) engine = std::make_unique<HeadlessEngine>(makeFa20Baseline(),
+                if (!engine) engine = std::make_unique<HeadlessEngine>(profile,
                     legacyModel ? EnginePreset::legacyM1 : EnginePreset::fa20ReferenceFull);
                 const auto& s = tracker.latest();
                 const auto runtime = ipc::decode(s);
