@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 using Microsoft::WRL::ComPtr;
 void checked(HRESULT hr) {if(FAILED(hr)) throw std::runtime_error("WASAPI HRESULT="+std::to_string(static_cast<unsigned long>(hr)));}
