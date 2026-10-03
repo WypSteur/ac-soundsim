@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <thread>
@@ -75,11 +76,12 @@ void unit() {
     stream.stop(); check(h->publishedBytes==0,"stop sentinel");
     std::cout<<"PASS IPC ABI, validation, torn reads, heartbeat, CSP header/ring/wrap\n";
 }
-void integration(const std::string& executable) {
+void integration(const std::string& executable,bool cadenceProbe=false) {
     const auto stateName=unique("live-state"), statusName=unique("live-status");
     ipc::Mapping state, status, audio, auditMap;
     state.create(stateName,sizeof(ipc::State));
-    std::string command="\""+executable+"\" --seconds 20 --audit --logs ipc-test-logs --state-name "+stateName+" --status-name "+statusName;
+    const auto testLogs=std::filesystem::current_path()/"artifacts"/"ipc-tests"/statusName;
+    std::string command="\""+executable+"\" --seconds 20 --audit --logs \""+testLogs.string()+"\" --state-name "+stateName+" --status-name "+statusName;
     STARTUPINFOA startup{}; startup.cb=sizeof(startup);
     PROCESS_INFORMATION process{};
     check(CreateProcessA(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)!=0,"runtime process start");
@@ -93,6 +95,14 @@ void integration(const std::string& executable) {
             WaitForSingleObject(process,25000); CloseHandle(process);
         }
     } cleanup{process.hProcess,statusName};
+    if (cadenceProbe) {
+        // ONLY our isolated child process: reproduce background Windows 11
+        // Sleep timer throttling. Never modifies the installed live runtime.
+        PROCESS_POWER_THROTTLING_STATE power{};
+        power.Version=PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+        power.ControlMask=power.StateMask=0x4; // IGNORE_TIMER_RESOLUTION
+        check(SetProcessInformation(process.hProcess,ProcessPowerThrottling,&power,sizeof(power))!=0,"isolated timer-throttling simulation");
+    }
     for(int i=0;i<100 && !status.data();++i) {
         status.open(statusName,sizeof(ipc::Status),false);
         if(!status.data()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -131,6 +141,17 @@ void integration(const std::string& executable) {
         check(std::isfinite(sample) && std::abs(sample)<=1,"runtime PCM validity"); energy+=sample*sample;
     }
     check(energy>1e-6,"runtime silent PCM");
+    if(cadenceProbe) {
+        const auto initialFrames=r.frames,initialLate=r.lateBlocks;
+        const auto begin=std::chrono::steady_clock::now();
+        stage(ipc::Mode::running,true,4000);
+        const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-begin).count();
+        std::cout<<"FA20 3000rpm isolated hidden runtime, ignore_timer_resolution=1: elapsed_s="<<elapsed
+                 <<" source_frames_per_s="<<(r.frames-initialFrames)/elapsed
+                 <<" producer_late_blocks="<<r.lateBlocks-initialLate<<" max_render_ms="<<r.maxRenderMs
+                 <<" faults="<<r.faults<<"; not native listening or consumer latency\n";
+        return;
+    }
     packet.flags|=ipc::paused; stage(ipc::Mode::paused,true);
     const auto phase=r.phase; stage(ipc::Mode::paused,true);
     check(r.phase==phase,"paused crank advanced");
@@ -154,7 +175,9 @@ void integration(const std::string& executable) {
 }
 int main(int argc,char** argv) {
     try {
-        if(argc==3 && std::string(argv[1])=="--runtime") integration(argv[2]); else unit();
+        if(argc==3 && std::string(argv[1])=="--runtime") integration(argv[2]);
+        else if(argc==3 && std::string(argv[1])=="--cadence") integration(argv[2],true);
+        else unit();
         return 0;
     } catch(const std::exception& error) {std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

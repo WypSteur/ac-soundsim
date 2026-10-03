@@ -102,10 +102,13 @@ producer timeout or invalid stream contract dispose it. Producer restarts use
 new audio names; retained status views are safely reused under a producer owner
 mutex. The supported stop event signals only SoundSim, not AC or another app.
 
-The producer scheduler uses steady time and scoped 1 ms Windows timer resolution.
+The original producer scheduler used steady time and scoped1ms timer resolution.
+It is superseded by a high-resolution waitable timer + scoped audio-thread MMCSS
+after the native stuttering regression; see runtime-cadence.md for measured proof.
 Missed blocks are counted as `producerLateBlocks` and filled with silence rather
 than rendering a burst of old engine states. This degrades phase/time continuity
-on overload; it is logged, not claimed perfect. No consumer cursor/fill/underrun
+on overload; it is logged, not claimed perfect. Small misses now retain the original
+time grid instead of introducing an extra idle period. No consumer cursor/fill/underrun
 metric is invented. Logging and engine recreation can cost time outside normal
 `render()`; no hard realtime guarantee is made.
 

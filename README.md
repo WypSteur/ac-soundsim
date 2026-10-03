@@ -36,6 +36,9 @@ source gate covers seven cadences + jitter with two initial conditions (16 cases
 Native listening/propagation/mix and latency acceptance still remain OPEN.
 Opt-in `start_runtime.ps1 -Audit`, `soundsim-m5-capture` and the latency analyzer
 prepare QPC-aligned measurements; no system audio recording starts automatically.
+Native stuttering exposed a runtime wake/deadline regression, now corrected with
+a high-resolution timer + scoped MMCSS. See `docs/runtime-cadence.md`; the fixed
+build still requires native listening, and M5 is not validated by CI alone.
 No intake work starts before that qualification. Third-party license notices are
 under `licenses/`; the license for our own code still awaits the user's choice.
 
@@ -57,7 +60,7 @@ externally imposed crank/piston kinematics and synchronous PCM rendering.
 .\scripts\build_m1.ps1 -GenerateAudio
 ```
 
-This builds, runs thirteen C++/CLI tests and generates an `800 -> 7400 -> 800 RPM` recording
+This builds, runs fourteen C++/CLI tests and generates an `800 -> 7400 -> 800 RPM` recording
 under `artifacts/m1/`. See `docs/m1-headless.md` for provenance, architecture,
 acceptance evidence and provisional FA20 acoustic parameters.
 

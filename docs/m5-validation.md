@@ -6,13 +6,16 @@ ces critères. CI/source, mock et écoute native sont trois niveaux de preuve.
 
 | Bloc | Preuves disponibles | Statut global |
 | --- | --- | --- |
-| M5A dynamique moteur | Correction prouvée, gate source multi-cadences Release/Debug | PARTIEL — écoute dynamique native à faire |
+| M5A dynamique moteur | Gate source multi-cadences Release/Debug ; saccades natives signalées | FAIL natif avant fix cadence — nouvel essai requis |
 | M5B propagation CSP | Paramètres/pose testés en mock | À VALIDER EN JEU |
 | M5C mix hybride | Ownership/fallback + autres FMOD intacts testés en mock | À VALIDER À L'OREILLE |
-| M5D latence/robustesse | IPC + QPC audit testés, capture/analyse préparées | PARTIEL — mesures et essais natifs à faire |
+| M5D latence/robustesse | Délais producer corrigés/testés ; capture/analyse préparées | FAIL cadence avant fix — nouvel essai et mesures requis |
 
 Aucune ligne n'est marquée PASS natif sans session, paramètres, preuves et retour
 d'écoute. Aucun seuil de latence arbitraire n'est choisi automatiquement.
+Le retour « complètement saccadé/craquelé » a révélé une défaillance du scheduler
+runtime, pas une validation M5. Voir `runtime-cadence.md` : l'ancien réveil perd
+des blocs même sans fault des gaz. Le fix est déployé mais son écoute reste à faire.
 
 ## Référence et préparation commune
 

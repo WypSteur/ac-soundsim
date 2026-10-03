@@ -3,13 +3,12 @@
 #include "soundsim/ipc.hpp"
 #include "soundsim/logger.hpp"
 #include "soundsim/audit_frame.hpp"
-#include <mmsystem.h>
+#include "soundsim/audio_scheduler.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <sstream>
-#include <thread>
 
 using namespace soundsim;
 namespace {
@@ -18,10 +17,6 @@ BOOL WINAPI consoleHandler(DWORD) { InterlockedExchange(&quit, 1); return TRUE; 
 struct Handle {
     HANDLE value{};
     ~Handle() { if (value) CloseHandle(value); }
-};
-struct TimerResolution {
-    TimerResolution() { timeBeginPeriod(1); }
-    ~TimerResolution() { timeEndPeriod(1); }
 };
 double clockSeconds() {
     using Clock = std::chrono::steady_clock;
@@ -98,7 +93,9 @@ int run(int argc, char** argv) {
     SS_LOG_INFO("ipc", "status=" + statusName + " size=368 schema=1; awaiting " + stateName);
     SS_LOG_INFO("audio", "MMF=" + audioName + " size=" + std::to_string(ipc::CspStream::kSize)
         + " mono float32 44100 Hz; block=294 (6.667 ms); decode hint=40 ms; ring=2.56 s capacity, not latency; consumer cursor/fill/underruns unavailable");
-    TimerResolution timer;
+    AudioWakeTimer timer;
+    AudioThreadTask audioTask;
+    SS_LOG_INFO("scheduler", "high-resolution waitable timer; fixed time grid; scoped MMCSS Pro Audio only while rendering");
     SetConsoleCtrlHandler(consoleHandler, TRUE);
     constexpr int steps = 147, frames = steps * 2;
     constexpr double period = static_cast<double>(frames) / HeadlessEngine::kSampleRate;
@@ -131,6 +128,10 @@ int run(int argc, char** argv) {
         }
         auto mode = tracker.mode(now);
         if (faulted && mode == ipc::Mode::running) mode = ipc::Mode::fault;
+        if (mode!=previousMode) {
+            if (!audioTask.setActive(mode==ipc::Mode::running))
+                SS_LOG_WARN("scheduler", "MMCSS unavailable error="+std::to_string(audioTask.error()));
+        }
         pcm.fill(0);
         if (auditEnabled) { audit.qpcInput=stamp(); audit.qpcRenderEnd=0; }
         status.renderMs = 0;
@@ -160,6 +161,7 @@ int run(int argc, char** argv) {
                 }
             } catch (const std::exception& error) {
                 faulted = true; mode = ipc::Mode::fault; ++status.faults;
+                audioTask.setActive(false);
                 std::strncpy(status.error, error.what(), sizeof(status.error) - 1);
                 SS_LOG_ERROR("engine-sim", status.error);
             }
@@ -199,16 +201,16 @@ int run(int argc, char** argv) {
         }
         next += period;
         const auto after = clockSeconds();
-        if (after > next + period) {
+        const auto recovery=recoverAudioDeadline(next,after,period);
+        if (recovery.missed) {
             // Do not render a burst of outdated crank states to catch up. Publish
             // silence for missed wall-time blocks and resynchronize the scheduler.
-            const int missed = static_cast<int>(std::min(150.0, std::floor((after - next) / period)));
             pcm.fill(0);
-            for (int i = 0; i < missed; ++i) stream.push(pcm.data(), frames);
-            status.lateBlocks += missed; gain = 0; next = after + period;
+            for (int i = 0; i < recovery.missed; ++i) stream.push(pcm.data(), frames);
+            status.lateBlocks += recovery.missed; gain = 0;
         }
         const auto delay = next - clockSeconds();
-        if (delay > 0) std::this_thread::sleep_for(std::chrono::duration<double>(delay));
+        if (!timer.wait(delay,stop.value)) break;
     }
     status.mode = static_cast<std::uint32_t>(ipc::Mode::waiting);
     status.audioName[0] = 0; ++status.heartbeat;

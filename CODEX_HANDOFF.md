@@ -52,7 +52,27 @@ distance / Doppler / cone / occlusion / reverb
 
 ## Current status
 
-### M5A–M5D execution — 2026-10-03 (takes precedence)
+### Native crackling / cadence correction — 2026-10-03 (latest)
+
+User reported entirely stuttering/crackling live sound. Treat native M5A/M5D as
+FAIL before scheduler fix, not overridden by CI. See docs/runtime-cadence.md.
+Live source valid/playing, EngineInt/Ext properly muted, gas faults0, ordinary
+render4.5–5.5ms; producer misses20–40blocks/s and inserts silence/gain resets.
+Raw112k late count included idle hours; do not call it112k in-session misses.
+
+New runtime: high-resolution waitable timer replacing Sleep/timeBeginPeriod,
+150Hz time-grid recovery (old next=after+period lost extra time), scoped MMCSS
+Pro Audio only while rendering. No global priority/power/registry/FM0D edits.
+Source/ignition/RPM/DSP/IR/gains/bridge unchanged. Tests pass Release/Debug.
+Controlled timer-throttled synthetic4s: old375blocks/130missed vs600/0.
+Real corrected-ignition FA20 runtime3000rpm4s: old37498frames/s+93misses vs
+new44149.9frames/s+0misses (counter boundaries approximate). Not native PASS.
+Normal fixed Release runtime restarted with --audit for user retest; no audio
+capture performed. Gameplay/listening/latency qualification remains required.
+Previous M5 CI68af6d0 succeeded; that did NOT detect this hidden/inaudible timer
+failure. Performance probes modify ONLY disposable isolated child processes.
+
+### M5A–M5D execution — 2026-10-03 (before cadence correction above)
 
 Read `docs/m5-validation.md` and `m5-results-template.md`. Four independent gates;
 NONE is a complete native PASS yet. No intake/second car until all four pass.
