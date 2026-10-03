@@ -52,6 +52,41 @@ distance / Doppler / cone / occlusion / reverb
 
 ## Current status
 
+### M5A–M5D execution — 2026-10-03 (takes precedence)
+
+Read `docs/m5-validation.md` and `m5-results-template.md`. Four independent gates;
+NONE is a complete native PASS yet. No intake/second car until all four pass.
+
+M5A proof: bounded per-step trace confirms DUPLICATE spark, cylinder2/cycle122,
+t=3.826712018, RPM2046.6667->1973.3333. s0<r0<s1<r1 means upstream retriggers the
+already-fired cylinder after an advance retard. Not a proven audible missed pulse
+or double combustion. Before trace:11768rows,1duplicate,1sequence anomaly,0drops.
+
+Normal HeadlessEngine now selects externalContinuous ignition: phase+advance
+crossing, per-cylinder720cycle dedup, startup/cut/re-enable handling. AC RPM/phase
+unsmoothed; upstream gas/fuel/DSP/IR unchanged. `upstreamAudit` is OFFLINE control
+only, not exposed as a normal runtime mode. Public upstream checkout not edited.
+`ignition_dynamic_regression`, known-upstream/fixed90Hz tests lock the exact case.
+M5A source gate now FAILS on any anomaly:30/60/90/120/144/165/240 + jitter30..240
+with delayed packets, two phase/packet conditions,16cases. Release/Debug source gate PASS
+(zero anomalies/guards/rails). Stationary source PCM compared against upstream
+control; don't assume all old dynamic WAVs remain bit-identical after a timing fix.
+
+M5D: runtime `--audit` / start script `-Audit` publishes optional separate136byte
+QPC MMF. Main state192/status368/audio unchanged. New user-started m5-capture
+records default endpoint SYSTEM loopback+runtime timestamps, no microphone,
+no playback/upload; refuses startup without fresh normal runtime+liveGT86/audit.
+No automatic audio capture. Analyzer aligns packets and measures manually
+annotated onset versus observed runtime input; excludes pedal->AC and device->ear.
+No arbitrary latency threshold chosen, no actual native M5 latency measured yet.
+
+M5B/C: existing 3D and FMOD policy unchanged, ready for live perceptive qualification.
+All native cases and measurement results remain pending; use the template and
+keep personal capture artifacts ignored. Do not mark complete on CI/mock alone.
+User will perform native trials later. Runtime/game left stopped; no loopback
+recording performed. Local Release13/13, Debug tests + updated steady A/B PASS;
+LuaJIT bridge and five Python audit-tool tests PASS. CI does not validate native M5.
+
 ### External audit consolidation — current priority
 
 Repository `https://github.com/WypSteur/ac-soundsim` remains PUBLIC, explicitly
@@ -65,14 +100,11 @@ See `docs/profile-extraction.md`. Physics/cam/flow/fuel/conduits and car resolve
 still C++-specialized. Before/after seeded source PCM matches exactly for all
 three audit presets on the same MSVC Release host. No Lua/listener changes.
 
-M5 is NOT closed. Read `docs/m5-validation.md`: current native listening checklist,
-read-only low-rate snapshot collector, and synthetic ZOH dynamic characterization.
-That characterization exposes an ignition sequence anomaly during fast decel at
-90Hz; gas guards/PCM rails/phase pass, firing correctness does NOT. Investigate
-the upstream timing-advance threshold under stepped external RPM before intake.
+Historical first consolidation: M5 stayed open after the synthetic characterization
+exposed a90Hz sequence anomaly. This was subsequently traced/corrected as above.
 Do not turn CI green into a claim of native Doppler, mix or latency validation.
 
-Order: dynamic ignition qualification + native M5 -> further profile extraction
+Order: native M5A–M5D qualification -> further profile extraction
 -> experimental independent intake source. No second engine/car yet.
 
 ### User listening validation — bridge 0.0.10 baseline

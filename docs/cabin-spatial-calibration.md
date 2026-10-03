@@ -7,8 +7,10 @@ no crushed/weakened sound, but not stock GT86 timbre. Latest session settings:
 level/mids -8dB, highs -24dB, high crossover2087Hz, body0dB/80Hz, gain8, guard on.
 These remain session settings, not shipped defaults. This perceptual validation
 does NOT replace endpoint headroom/latency/real-car measurements. Separate intake
-source is the next proposed feature, not implemented. Sections below describe
+source remains after the M5A–M5D gate, not implemented. Sections below describe
 initial presets and measurement boundaries; listening acceptance is partial now.
+The subsequent M5A ignition timing fix changes event scheduling only; the cabin
+transfer/levels/IR/FX policy below is unchanged. See `m5-validation.md`.
 
 Implemented, offline tested, ready for user listening. NOT a measured GT86 cabin,
 not a validated real-world exhaust, and not an end-to-end CSP clipping guarantee.

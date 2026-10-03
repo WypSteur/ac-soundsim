@@ -12,7 +12,7 @@ concurrency:
 jobs:
   offline:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -42,5 +42,8 @@ jobs:
             build/Testing/Temporary/*.log
             build/audio-audit-test/metrics.csv
             build/m1-test/*.csv
+            build/dynamic-gate.csv
+            build/ignition-upstream/*.csv
+            build/ignition-fixed/*.csv
           if-no-files-found: ignore
           retention-days: 14

@@ -11,11 +11,23 @@ namespace soundsim {
 // Legacy is retained for M1 regression. The reference presets explicitly port
 // Subaru_FA20D.mr onto the public core; they are not a dynamic .mr interpreter.
 enum class EnginePreset { legacyM1, fa20ReferenceDry, fa20ReferenceFull };
+enum class IgnitionPolicy { externalContinuous, upstreamAudit };
 
 struct EngineInput {
     double rpm{800.0};
     double throttle{0.0};
     bool ignitionEnabled{true};
+};
+
+// Optional bounded caller-owned offline trace. Four rows per simulation step;
+// includes non-firing steps. No allocation/file IO on the render path.
+struct IgnitionTraceRow {
+    double timeSeconds{}, previousRpm{}, rpm{};
+    double crankPrevious{}, crankCurrent{}, advancePrevious{}, advanceCurrent{};
+    double thresholdPrevious{}, thresholdCurrent{};
+    std::int64_t sparkCycle{};
+    int cylinder{};
+    bool upstreamFired{}, selectedFired{}, upstreamDuplicate{}, sequenceAnomaly{};
 };
 
 struct EngineDiagnostics {
@@ -34,6 +46,7 @@ struct EngineDiagnostics {
     std::array<std::uint64_t, 4> combustions{};
     std::uint64_t firingOrderErrors{};
     std::uint64_t instabilityGuards{};
+    std::uint64_t traceRows{}, traceDropped{};
 };
 
 class HeadlessEngine final {
@@ -45,7 +58,8 @@ public:
     static constexpr int kMaximumBlockFrames = 2 * kMaximumBlockSteps + 1;
 
     explicit HeadlessEngine(const EngineProfileV1& profile,
-                            EnginePreset preset = EnginePreset::legacyM1);
+                            EnginePreset preset = EnginePreset::legacyM1,
+                            IgnitionPolicy ignition = IgnitionPolicy::externalContinuous);
     ~HeadlessEngine();
     HeadlessEngine(const HeadlessEngine&) = delete;
     HeadlessEngine& operator=(const HeadlessEngine&) = delete;
@@ -55,6 +69,8 @@ public:
     // frames; the upstream initial t=0 sample is discarded on the first call.
     int render(const EngineInput& input, int steps, std::int16_t* pcm, int capacity);
     const EngineDiagnostics& diagnostics() const noexcept;
+    void traceIgnition(IgnitionTraceRow* rows, std::size_t capacity,
+                       double minimumRpm=1800, double maximumRpm=2200);
     static const char* upstreamRevision() noexcept;
 
 private:

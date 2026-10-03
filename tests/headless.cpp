@@ -15,9 +15,10 @@ void check(bool ok, const char* message) { if (!ok) throw std::runtime_error(mes
 
 struct Result { std::vector<std::int16_t> pcm; EngineDiagnostics diagnostics; };
 Result hold(double throttle, bool ignition, EnginePreset preset=EnginePreset::legacyM1,
-            const EngineProfileV1* customProfile=nullptr) {
+            const EngineProfileV1* customProfile=nullptr,
+            IgnitionPolicy clock=IgnitionPolicy::externalContinuous) {
     std::srand(12345);
-    HeadlessEngine engine(customProfile ? *customProfile : makeFa20Baseline(),preset);
+    HeadlessEngine engine(customProfile ? *customProfile : makeFa20Baseline(),preset,clock);
     Result r;
     std::array<std::int16_t, HeadlessEngine::kMaximumBlockFrames> block{};
     for (int b = 0; b < 450; ++b) {
@@ -49,6 +50,8 @@ int main() {
         const auto referenceOff=hold(0.8,false,EnginePreset::fa20ReferenceFull);
         const auto referenceLow=hold(0.05,true,EnginePreset::fa20ReferenceFull);
         check(reference.pcm==referenceRepeat.pcm,"seeded public-core reference not repeatable");
+        const auto upstreamHold=hold(0.8,true,EnginePreset::fa20ReferenceFull,nullptr,IgnitionPolicy::upstreamAudit);
+        check(reference.pcm==upstreamHold.pcm,"steady reference PCM changed with corrected ignition");
         auto changedProfile = makeFa20Baseline(); changedProfile.referenceAudio.masterVolume = 0.125;
         const auto changedAudio = hold(0.8,true,EnginePreset::fa20ReferenceFull,&changedProfile);
         check(reference.pcm!=changedAudio.pcm,"profile source volume not applied by synthesizer");

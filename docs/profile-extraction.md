@@ -49,3 +49,8 @@ exactement à la base précédente sur le poste MSVC Release. Le rapport complet
 reste dans les artifacts ignorés. Cela ne prouve ni fidélité réelle GT86 ni
 identité à l'application Community Edition. La CI garde des metrics offline ;
 un hash exact entre toolchains différentes n'est pas imposé sans qualification.
+
+This exact three-preset comparison qualified the first YAML extraction commit,
+before the subsequent M5A ignition fix. A corrected dynamic spark schedule can
+intentionally differ from old WAVs. The new steady-state PCM/upstream-control
+test separates unchanged source timbre from intended dynamic timing corrections.

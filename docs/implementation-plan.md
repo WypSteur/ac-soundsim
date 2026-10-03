@@ -53,17 +53,24 @@ CSP graph ordering or global output headroom. See cabin-spatial-calibration.md.
 
 ## M5 — Drivable/native qualification (OPEN)
 
-Read m5-validation.md and use the read-only capture_m5.py collector.
-Required: fast acceleration, gear changes, fast decel, live fixed-camera fly-by,
-Doppler, distance/orientation, cabin transitions, complementary FMOD mix,
-fallback/restart and perceptual latency. Document actual settings and versions.
+Four independent gates, specified in m5-validation.md:
 
-Synthetic ZOH characterization at60/90/144Hz checks phase, cadence, source rails
-and gas guards. It also reports ignition sequence anomalies during fast decel.
-These counters are NOT certified by a green test result: characterize the public
-timing-advance threshold with external RPM, then qualify/fix before intake.
-No automatic test or 1Hz snapshot proves perceptual latency or native propagation.
-M5 closes only with documented dynamic/native acceptance, not only compilation.
+- M5A engine dynamics: rapid acceleration, gears, decel/reprise, no duplicate/
+  missed impulses/clicks/holes/pitch jumps. The traced90Hz duplicate is corrected.
+  Strict source gate covers30/60/90/120/144/165/240 + jitter, two initial conditions,
+  requires0firing anomalies/guards/rails and exact external phase/cadence.
+- M5B CSP propagation: live fixed-camera approach/pass/recede, front/rear exhaust,
+  near/far/near and continuous Doppler, no volume/pose jumps. Native pending.
+- M5C hybrid mix: EngineInt/Ext absent; complementary/all suitable mod FX retained
+  at their existing levels. Mock/ownership tested, listening pending.
+- M5D latency/robustness: QPC-aligned opt-in runtime+loopback capture and manually
+  annotated audio onset; latency measured/accepted, plus pause/restart/session/
+  native fallback. Automated IPC passes do not replace native acceptance.
+
+No whole bloc/native PASS claimed yet. The1Hz snapshot collector cannot measure
+latency; the new capture tool never records automatically or uploads personal
+audio. Gate final: all four blocks PASS, not merely compilation or pleasant timbre.
+Only then declare the GT86 complete reference implementation. Intake remains later.
 
 ## Repository consolidation / data-driven extraction
 

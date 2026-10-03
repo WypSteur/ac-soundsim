@@ -28,10 +28,14 @@ covers identity/geometry/defaults/source DSP, with unchanged baseline PCM.
 Combustion/conduit parameters and the car resolver remain C++-specialized.
 See `docs/profile-extraction.md`.
 
-M5 remains open: `docs/m5-validation.md` has the live listening checklist and
-read-only evidence collector. Rapid synthetic deceleration exposed an ignition
-sequence anomaly with stepped external RPM; this is explicitly reported by the
-dynamic characterization test, not certified as correct firing by a green CI.
+M5 is split into M5A dynamics, M5B CSP propagation, M5C hybrid FMOD mix and M5D
+latency/robustness. See `docs/m5-validation.md` and the results template. The 90Hz
+source defect is now proven to be a duplicate spark and corrected by the external
+ignition adapter, without RPM smoothing or upstream gas/DSP changes. A strict
+source gate covers seven cadences + jitter with two initial conditions (16 cases).
+Native listening/propagation/mix and latency acceptance still remain OPEN.
+Opt-in `start_runtime.ps1 -Audit`, `soundsim-m5-capture` and the latency analyzer
+prepare QPC-aligned measurements; no system audio recording starts automatically.
 No intake work starts before that qualification. Third-party license notices are
 under `licenses/`; the license for our own code still awaits the user's choice.
 
@@ -53,7 +57,7 @@ externally imposed crank/piston kinematics and synchronous PCM rendering.
 .\scripts\build_m1.ps1 -GenerateAudio
 ```
 
-This builds, runs nine C++ tests and generates an `800 -> 7400 -> 800 RPM` recording
+This builds, runs thirteen C++/CLI tests and generates an `800 -> 7400 -> 800 RPM` recording
 under `artifacts/m1/`. See `docs/m1-headless.md` for provenance, architecture,
 acceptance evidence and provisional FA20 acoustic parameters.
 

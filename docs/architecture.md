@@ -21,9 +21,12 @@ stream SoundSim est utilisable ; tous les autres événements FMOD restent intac
 Cela ne prouve pas que le calcul natif soit évité ni que les événements moteur
 de tous les mods ne contiennent que du continu. Un seul bus mono échappement ;
 l'admission indépendante reste future. La base cabine/extérieur est acceptée,
-mais M5 inclut encore dynamique d'allumage, fly-by, distance, mix et latence.
-Une anomalie d'allumage sur décélération synthétique rapide est consignée dans
-`m5-validation.md`. Aucun renderer audio CI ne remplace les essais natifs CSP.
+mais M5 est divisée en M5A dynamique, M5B propagation, M5C mix, M5D latence/
+robustesse. Le doublon d'allumage90Hz a été prouvé/corrigé par un adaptateur de
+croisement phase+avance et identité cylindre/cycle, sans lissage RPM ni changement
+gaz/DSP. Gate source multi-cadences strict, mesures QPC/loopback opt-in préparées.
+Les quatre blocs ne sont pas encore PASS natifs : voir `m5-validation.md`.
+Aucun renderer audio CI ne remplace les essais natifs CSP.
 
 ## 0. Résumé exécutif
 

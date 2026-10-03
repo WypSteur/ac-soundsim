@@ -1,4 +1,4 @@
-param([int]$Seconds = 0, [switch]$DiagnosticTone, [switch]$LegacyModel, [string]$Profile = '')
+param([int]$Seconds = 0, [switch]$DiagnosticTone, [switch]$LegacyModel, [string]$Profile = '', [switch]$Audit)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $binary = Join-Path $projectRoot 'build\Release\soundsim-runtime.exe'
@@ -15,6 +15,7 @@ if ($DiagnosticTone) {
   Write-Warning 'Diagnostic 440 Hz tone only; NOT the engine simulation.'
 }
 if ($LegacyModel) { $arguments += '--legacy-model'; Write-Warning 'Legacy provisional M1 model (comparison/rollback only).' }
+if ($Audit) { $arguments += '--audit' }
 $process = Start-Process -FilePath $binary -ArgumentList $arguments -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
 Start-Sleep -Milliseconds 500
 if ($process.HasExited) { throw ('Runtime exited with code ' + $process.ExitCode + '; inspect logs/runtime (another runtime might already be active).') }

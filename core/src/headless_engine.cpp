@@ -1,5 +1,6 @@
 #include "soundsim/headless_engine.hpp"
 #include "soundsim/externally_driven_crank.hpp"
+#include "soundsim/externally_driven_ignition.hpp"
 #include "soundsim/wav.hpp"
 
 #include "engine.h"
@@ -59,6 +60,7 @@ void buildReferenceLobe(Function& f, double lift) {
 struct HeadlessEngine::Impl {
     Engine engine;
     ExternallyDrivenCrank crank;
+    ExternallyDrivenIgnition ignitionClock;
     Synthesizer synth;
     std::array<Camshaft, 2> intakeCams;
     std::array<Camshaft, 2> exhaustCams;
@@ -72,13 +74,21 @@ struct HeadlessEngine::Impl {
     bool synthInitialized{};
     bool failed{};
     EnginePreset preset;
+    IgnitionPolicy ignitionPolicy;
     double connectingRodLength = rodLength;
     bool reference() const { return preset != EnginePreset::legacyM1; }
+    IgnitionTraceRow* trace{};
+    std::size_t traceCapacity{};
+    double traceMinRpm{}, traceMaxRpm{}, previousRpm{}, previousAdvance{};
+    bool timingSeen{};
+    std::array<std::int64_t,4> rawLastCycle{INT64_MIN,INT64_MIN,INT64_MIN,INT64_MIN};
 
-    explicit Impl(const EngineProfileV1& p, EnginePreset selected) : preset(selected) {
+    explicit Impl(const EngineProfileV1& p, EnginePreset selected, IgnitionPolicy policy) : preset(selected), ignitionPolicy(policy) {
         validateProfile(p);
         if (preset != EnginePreset::legacyM1 && preset != EnginePreset::fa20ReferenceDry && preset != EnginePreset::fa20ReferenceFull)
             throw std::invalid_argument("Unsupported Engine-Sim preset");
+        if (policy != IgnitionPolicy::externalContinuous && policy != IgnitionPolicy::upstreamAudit)
+            throw std::invalid_argument("Unsupported ignition policy");
         if (reference()) connectingRodLength = 0.1293;
         try { configure(p); }
         catch (...) { cleanup(); throw; }
@@ -404,21 +414,42 @@ struct HeadlessEngine::Impl {
     }
 
     void step(const EngineInput& in) {
+        const double previousAngle = crank.totalAngle();
         crank.advance(in.rpm, dt);
         imposeKinematics();
         engine.update(dt);
         auto* ignition = engine.getIgnitionModule();
         ignition->m_enabled = in.ignitionEnabled && in.rpm > 0;
+        const double advance = ignition->getTimingAdvance();
+        if (!timingSeen) { previousAdvance = advance; previousRpm = in.rpm; timingSeen = true; }
         ignition->update(dt);
+        const auto decision = ignitionClock.step(previousAngle, crank.totalAngle(), advance, ignition->m_enabled);
+        if (!ignition->m_enabled) lastFiringSlot = -1; // intentional cut, not a sequence fault
         for (int i = 0; i < 4; ++i) {
             auto* cc = engine.getChamber(i);
             const double volume = cc->getVolume();
             if (!std::isfinite(volume) || volume <= 0) unstable("non-positive chamber volume");
             stats.minimumVolume = std::min(stats.minimumVolume, volume);
             // Match public PistonEngineSimulator: ignition BEFORE chamber update.
-            if (ignition->getIgnitionEvent(i)) {
+            const bool upstreamFired = ignition->getIgnitionEvent(i);
+            const bool fired = ignitionPolicy == IgnitionPolicy::upstreamAudit ? upstreamFired : decision.fired[i];
+            const auto sparkCycle = static_cast<std::int64_t>(std::ceil((previousAngle + advance - firingPhase[i])/cycle));
+            const bool duplicate = upstreamFired && rawLastCycle[i] == sparkCycle;
+            if (upstreamFired) rawLastCycle[i] = sparkCycle;
+            const bool anomaly = fired && lastFiringSlot >= 0 && i != (lastFiringSlot + 1) % 4;
+            if (trace && ((in.rpm >= traceMinRpm && in.rpm <= traceMaxRpm) ||
+                          (previousRpm >= traceMinRpm && previousRpm <= traceMaxRpm))) {
+                if (stats.traceRows < traceCapacity) {
+                    trace[stats.traceRows++] = {(stats.simulationSteps+1)*dt, previousRpm, in.rpm,
+                        previousAngle, crank.totalAngle(), previousAdvance, advance,
+                        firingPhase[i] + sparkCycle*cycle - previousAdvance,
+                        firingPhase[i] + sparkCycle*cycle - advance,
+                        sparkCycle, labels[i], upstreamFired, fired, duplicate, anomaly};
+                } else ++stats.traceDropped;
+            }
+            if (fired) {
                 ++stats.sparks[labels[i] - 1];
-                if (lastFiringSlot >= 0 && i != (lastFiringSlot + 1) % 4) ++stats.firingOrderErrors;
+                if (anomaly) ++stats.firingOrderErrors;
                 lastFiringSlot = i;
                 cc->ignite();
                 if (cc->popLitLastFrame()) ++stats.combustions[labels[i] - 1];
@@ -453,11 +484,13 @@ struct HeadlessEngine::Impl {
         if (!std::isfinite(exhaustSignal)) unstable("non-finite exhaust signal");
         synth.writeInput(&exhaustSignal);
         ignition->resetIgnitionEvents();
+        previousRpm = in.rpm; previousAdvance = advance;
         ++stats.simulationSteps;
     }
 };
 
-HeadlessEngine::HeadlessEngine(const EngineProfileV1& p, EnginePreset preset) : impl_(std::make_unique<Impl>(p, preset)) {}
+HeadlessEngine::HeadlessEngine(const EngineProfileV1& p, EnginePreset preset, IgnitionPolicy ignition)
+    : impl_(std::make_unique<Impl>(p, preset, ignition)) {}
 HeadlessEngine::~HeadlessEngine() = default;
 
 int HeadlessEngine::render(const EngineInput& in, int steps, std::int16_t* pcm, int capacity) {
@@ -492,6 +525,13 @@ int HeadlessEngine::render(const EngineInput& in, int steps, std::int16_t* pcm, 
 }
 
 const EngineDiagnostics& HeadlessEngine::diagnostics() const noexcept { return impl_->stats; }
+void HeadlessEngine::traceIgnition(IgnitionTraceRow* rows, std::size_t capacity, double minimumRpm, double maximumRpm) {
+    if ((!rows && capacity) || !std::isfinite(minimumRpm) || !std::isfinite(maximumRpm) || minimumRpm < 0 || maximumRpm < minimumRpm)
+        throw std::invalid_argument("invalid ignition trace buffer/range");
+    impl_->trace = rows; impl_->traceCapacity = capacity;
+    impl_->traceMinRpm = minimumRpm; impl_->traceMaxRpm = maximumRpm;
+    impl_->stats.traceRows = impl_->stats.traceDropped = 0;
+}
 const char* HeadlessEngine::upstreamRevision() noexcept { return ACSOUNDSIM_ENGINE_SIM_REVISION; }
 
 } // namespace soundsim

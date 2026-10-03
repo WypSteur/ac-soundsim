@@ -1,5 +1,10 @@
 # FA20D source and CSP listening audit — 2026-10-02
 
+Subsequent M5A change: external ignition crossing/dedup is corrected, upstream
+gas/fuel/IR/DSP parameters unchanged. Original dynamic metrics below are historical;
+do not claim bit-identical old sweeps after a timing correction. See
+`m5-validation.md` for proof, regression and four native acceptance blocks.
+
 Source/model evidence below remains current. Listener/gain instructions near the
 end describe bridge0.0.6; current bridge0.0.10 adds cabin transfer, own gain/guard
 and source metering. Use `cabin-spatial-calibration.md` for current A/B procedure,

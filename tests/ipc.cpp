@@ -1,5 +1,6 @@
 #include "soundsim/csp_stream.hpp"
 #include "soundsim/ipc.hpp"
+#include "soundsim/audit_frame.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -76,9 +77,9 @@ void unit() {
 }
 void integration(const std::string& executable) {
     const auto stateName=unique("live-state"), statusName=unique("live-status");
-    ipc::Mapping state, status, audio;
+    ipc::Mapping state, status, audio, auditMap;
     state.create(stateName,sizeof(ipc::State));
-    std::string command="\""+executable+"\" --seconds 20 --logs ipc-test-logs --state-name "+stateName+" --status-name "+statusName;
+    std::string command="\""+executable+"\" --seconds 20 --audit --logs ipc-test-logs --state-name "+stateName+" --status-name "+statusName;
     STARTUPINFOA startup{}; startup.cb=sizeof(startup);
     PROCESS_INFORMATION process{};
     check(CreateProcessA(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)!=0,"runtime process start");
@@ -111,6 +112,11 @@ void integration(const std::string& executable) {
         check(r.faults==0,"runtime engine fault");
     };
     stage(ipc::Mode::running,true,1500);
+    check(auditMap.open(statusName+".Audit.v1",sizeof(ipc::AuditFrame),false),"opt-in QPC audit mapping");
+    ipc::AuditFrame trace;
+    check(ipc::snapshot(auditMap.data(),trace) && trace.magic==ipc::kAuditMagic && trace.version==1 && trace.size==136,"audit ABI/schema");
+    check(trace.qpcFrequency>0 && trace.qpcInput>0 && trace.qpcRenderEnd>=trace.qpcInput && trace.qpcPublish>=trace.qpcRenderEnd,"audit QPC stage ordering");
+    check(trace.rpm==3000 && trace.throttle==.3f && trace.ignitionAnomalies==0,"audit input/ignition provenance");
     check(r.requestedRpm==3000 && std::abs(r.effectiveRpm-3000)<1e-8,"external crank live RPM");
     check(audio.open(r.audioName,r.audioSize,false),"runtime CSP audio mapping");
     const auto* h=static_cast<const ipc::CspAudioHeader*>(audio.data());

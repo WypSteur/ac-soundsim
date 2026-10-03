@@ -2,6 +2,7 @@
 #include "soundsim/headless_engine.hpp"
 #include "soundsim/ipc.hpp"
 #include "soundsim/logger.hpp"
+#include "soundsim/audit_frame.hpp"
 #include <mmsystem.h>
 #include <array>
 #include <chrono>
@@ -34,14 +35,16 @@ int run(int argc, char** argv) {
     double seconds = 0;
     bool diagnosticTone = false;
     bool legacyModel = false;
+    bool auditEnabled = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--help") {
-            std::cout << "soundsim-runtime [--seconds N] [--logs directory] [--profile yaml] [--state-name name] [--status-name name] [--diagnostic-tone] [--legacy-model]\n";
+            std::cout << "soundsim-runtime [--seconds N] [--logs directory] [--profile yaml] [--state-name name] [--status-name name] [--diagnostic-tone] [--legacy-model] [--audit]\n";
             return 0;
         }
         if (arg == "--diagnostic-tone") { diagnosticTone = true; continue; }
         if (arg == "--legacy-model") { legacyModel = true; continue; }
+        if (arg == "--audit") { auditEnabled = true; continue; }
         if (i + 1 >= argc) throw std::invalid_argument("missing option value");
         const std::string value = argv[++i];
         if (arg == "--logs") logs = value;
@@ -68,6 +71,7 @@ int run(int argc, char** argv) {
         << " master=" << profile.referenceAudio.masterVolume << " levelerTarget=" << profile.referenceAudio.levelerTarget
         << "; public core; AC RPM authority; calibration pending";
     SS_LOG_INFO("profile", profileInfo.str());
+    SS_LOG_INFO("ignition", "external continuous phase+advance crossing; per-cylinder 720-cycle identity; no RPM smoothing");
     const auto generation = GetTickCount64();
     const auto audioName = "AcTools.ACSoundSim.Audio." + std::to_string(GetCurrentProcessId()) + "." + std::to_string(generation);
     ipc::CspStream stream(audioName);
@@ -79,6 +83,16 @@ int run(int argc, char** argv) {
     status.sampleRate = ipc::CspStream::kRate;
     status.audioSize = ipc::CspStream::kSize;
     status.flags = diagnosticTone ? 1u : (legacyModel ? 0u : 2u);
+    ipc::Mapping auditMapping;
+    ipc::AuditFrame audit;
+    if (auditEnabled) {
+        LARGE_INTEGER frequency{}; if (!QueryPerformanceFrequency(&frequency)) throw std::runtime_error("QPC unavailable");
+        audit.qpcFrequency=frequency.QuadPart;
+        audit.generation=status.generation; audit.sourceFlags=status.flags;
+        auditMapping.create(statusName+".Audit.v1",sizeof(audit),true);
+        SS_LOG_INFO("audit", "opt-in 136-byte QPC trace; telemetry observation -> source publish only; not consumer latency");
+    }
+    auto stamp=[]() { LARGE_INTEGER value{}; QueryPerformanceCounter(&value); return static_cast<std::uint64_t>(value.QuadPart); };
     if (diagnosticTone) SS_LOG_WARN("audio", "DIAGNOSTIC 440 Hz TONE ONLY; not Engine-Sim and not a replacement engine model");
     std::strncpy(status.audioName, audioName.c_str(), sizeof(status.audioName) - 1);
     SS_LOG_INFO("ipc", "status=" + statusName + " size=368 schema=1; awaiting " + stateName);
@@ -118,6 +132,7 @@ int run(int argc, char** argv) {
         auto mode = tracker.mode(now);
         if (faulted && mode == ipc::Mode::running) mode = ipc::Mode::fault;
         pcm.fill(0);
+        if (auditEnabled) { audit.qpcInput=stamp(); audit.qpcRenderEnd=0; }
         status.renderMs = 0;
         if (mode == ipc::Mode::running && diagnosticTone) {
             for (int i = 0; i < frames; ++i) {
@@ -134,6 +149,7 @@ int run(int argc, char** argv) {
                 // Bounded zero-order hold: latest AC sample, no guessed future RPM.
                 const auto begin = clockSeconds();
                 engine->render({runtime.rpm, runtime.throttle, runtime.rpm > 0}, steps, raw.data(), static_cast<int>(raw.size()));
+                if (auditEnabled) audit.qpcRenderEnd=stamp();
                 status.renderMs = (clockSeconds() - begin) * 1000;
                 status.maxRenderMs = std::max(status.maxRenderMs, status.renderMs);
                 const auto& d = engine->diagnostics();
@@ -159,6 +175,17 @@ int run(int argc, char** argv) {
         status.droppedStates = tracker.dropped(); status.resets = tracker.resets();
         status.frames = stream.frames(); ++status.heartbeat;
         ipc::publish(statusMapping.data(), status);
+        if (auditEnabled) {
+            audit.qpcPublish=stamp(); audit.mode=status.mode; audit.stateCommit=status.stateCommit;
+            audit.sourceFrames=status.frames; audit.heartbeat=status.heartbeat;
+            audit.ignitionAnomalies=engine ? engine->diagnostics().firingOrderErrors : 0;
+            audit.lateBlocks=status.lateBlocks; audit.stateAgeSeconds=status.stateAgeSeconds; audit.faults=status.faults;
+            if (tracker.received()) {
+                const auto& sample=tracker.latest(); audit.rpm=sample.rpm; audit.throttle=sample.throttle;
+                audit.gear=sample.gear; audit.stateTimestampSeconds=sample.timestampSeconds; audit.stateFlags=sample.flags;
+            }
+            ipc::publish(auditMapping.data(),audit);
+        }
         if (now >= nextLog) {
             nextLog = now + 1;
             std::ostringstream line;
@@ -186,6 +213,7 @@ int run(int argc, char** argv) {
     status.mode = static_cast<std::uint32_t>(ipc::Mode::waiting);
     status.audioName[0] = 0; ++status.heartbeat;
     ipc::publish(statusMapping.data(), status);
+    if (auditEnabled) { audit.mode=status.mode; audit.qpcPublish=stamp(); ++audit.heartbeat; ipc::publish(auditMapping.data(),audit); }
     stream.stop();
     SS_LOG_INFO("bootstrap", "runtime stopped; frames=" + std::to_string(stream.frames()));
     SetConsoleCtrlHandler(consoleHandler, FALSE);
