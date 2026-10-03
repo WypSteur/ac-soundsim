@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import struct
 import tempfile
+import os
+import time
 import unittest
 from unittest.mock import patch
 import wave
@@ -20,8 +22,82 @@ def module(name):
 capture = module('capture_m5')
 compare = module('compare_source_pcm')
 latency = module('analyze_m5_latency')
+session = module('m5_session')
 
 class AuditTools(unittest.TestCase):
+    def test_latency_batch_and_bad_runtime_window(self):
+        metadata=dict(sample_rate=1000)
+        packets=[dict(frame_offset=0,frames=1000,qpc_100ns=100000000,device_frame=0,flags=0)]
+        rows=[dict(heartbeat=str(i),generation='1',mode='1',faults='0',ignition_anomalies='0',late_blocks='0',
+                   qpc_input_s=str(10+i*.1),qpc_render_end_s=str(10+i*.1+.003),qpc_publish_s=str(10+i*.1+.004),state_age_s='.01') for i in range(1,6)]
+        annotations=[dict(generation='1',heartbeat=str(i),audio_frame=str(i*100+50),uncertainty_frames='2',comment='synthetic fixture') for i in range(1,6)]
+        batch=latency.measure_batch(metadata,packets,rows,annotations)
+        self.assertEqual(batch['event_count'],5); self.assertAlmostEqual(batch['median_ms'],50)
+        self.assertAlmostEqual(batch['maximum_ms'],50); self.assertEqual(batch['events'][0]['onset_uncertainty_ms'],2)
+        self.assertIsNone(batch['within_chosen_threshold']); self.assertEqual(batch['m5_status'],'PENDING_MANUAL_REVIEW')
+        with self.assertRaises(ValueError): latency.measure_batch(metadata,packets,rows,annotations+[annotations[0]])
+        bad=dict(rows[0],heartbeat='99',qpc_input_s='10.12',late_blocks='1')
+        with self.assertRaises(ValueError): latency.measure(metadata,packets,rows+[bad],1,150)
+        restart=dict(bad,generation='2',late_blocks='0')
+        with self.assertRaises(ValueError): latency.measure(metadata,packets,rows+[restart],1,150,generation=1)
+        outside=dict(rows[0],qpc_input_s='9.95',qpc_render_end_s='9.96',qpc_publish_s='9.97')
+        with self.assertRaises(ValueError): latency.measure(metadata,packets,[outside],1,150)
+
+    def test_session_gate_never_passes_empty_or_unmeasured_native_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory); (folder/'evidence').mkdir()
+            source=folder/'evidence'/'source-gate.csv'
+            with source.open('w',newline='',encoding='utf-8') as out:
+                fields=['state_hz','warmup_blocks','packet_offset_s','frames','source_peak','firing_sequence_anomalies','gas_guards']
+                writer=csv.DictWriter(out,fieldnames=fields); writer.writeheader()
+                for hz in (30,60,90,120,144,165,240,0):
+                    for warm in (0,37): writer.writerow(dict(state_hz=hz,warmup_blocks=warm,packet_offset_s=.0043 if warm else 0,frames=(900+warm)*294,source_peak=.1,firing_sequence_anomalies=0,gas_guards=0))
+            self.assertEqual(session.source_gate(source),16)
+            manifest=dict(schema=1,target='ks_toyota_gt86',working_tree_dirty=False,
+                          **{field:'unit fixture, NOT native evidence' for field in ('operator','ac_csp_versions','track','windows_output','ac_volumes','settings')})
+            cases={key:dict(status='PENDING',notes='',evidence=[]) for key in session.CASES}
+            results=dict(schema=1,cases=cases,latency_report='',latency_accepted=False,latency_acceptance_notes='')
+            session.dump(folder/'session.json',manifest); session.dump(folder/'results.json',results)
+            self.assertFalse(session.assess(folder)['reference_implementation_complete'])
+
+            for entry in cases.values(): entry.update(status='PASS',notes='Synthetic declared fixture',evidence=['evidence/source-gate.csv'])
+            session.dump(folder/'results.json',results,False)
+            self.assertEqual(session.assess(folder)['blocks']['D'],'PENDING')
+            events=[dict(generation=1,heartbeat=i,latency_ms=50,onset_identification='MANUAL_REVIEW_REQUIRED') for i in range(5)]
+            session.dump(folder/'evidence'/'latency.json',dict(event_count=5,events=events,chosen_threshold_ms=None))
+            results.update(latency_report='evidence/latency.json',latency_accepted=True,latency_acceptance_notes='Synthetic acceptance fixture')
+            session.dump(folder/'results.json',results,False)
+            self.assertTrue(session.assess(folder)['reference_implementation_complete'])
+            cases['B.doppler']['status']='FAIL'; session.dump(folder/'results.json',results,False)
+            self.assertEqual(session.assess(folder)['blocks']['B'],'FAIL')
+            cases['B.doppler']['status']='PASS'; cases['B.doppler']['evidence']=['../outside.json']
+            session.dump(folder/'results.json',results,False)
+            self.assertFalse(session.assess(folder)['reference_implementation_complete'])
+
+    def test_session_creation_and_fresh_snapshot_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base=Path(directory)
+            with contextlib.redirect_stdout(io.StringIO()):
+                folder=session.create(base,'synthetic-unit-fixture')
+            results=json.loads((folder/'results.json').read_text(encoding='utf-8'))
+            self.assertEqual(len(results['cases']),23)
+            self.assertTrue(all(case['status']=='PENDING' for case in results['cases'].values()))
+            self.assertFalse(session.assess(folder)['reference_implementation_complete'])
+            source=base/'bridge.txt'
+            source.write_text('[ACSoundSim] car=ks_toyota_gt86 bridgeVersion=0.0.11 transportHealth=healthy native=MUTED\nlastError=\n',encoding='utf-8')
+            with contextlib.redirect_stdout(io.StringIO()):
+                snapshot=session.snapshot(folder,'baseline-fixture',source)
+            evidence=json.loads(snapshot.read_text(encoding='utf-8'))
+            self.assertEqual(evidence['fields']['transportHealth'],'healthy')
+            self.assertIn('not perceptual PASS',evidence['scope'])
+            self.assertFalse(session.assess(folder)['reference_implementation_complete'])
+            stamp=time.time()-10; os.utime(source,(stamp,stamp))
+            with self.assertRaises(ValueError): session.snapshot(folder,'stale',source)
+            source.write_text('[ACSoundSim] car=wrong_car bridgeVersion=0.0.11\nlastError=\n',encoding='utf-8')
+            with self.assertRaises(ValueError): session.snapshot(folder,'wrong',source)
+            source.write_text('[ACSoundSim] car=ks_toyota_gt86 bridgeVersion=0.0.10\nlastError=\n',encoding='utf-8')
+            with self.assertRaises(ValueError): session.snapshot(folder,'old-version',source)
+
     def test_latency_capture_files_cli_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             folder=Path(directory)

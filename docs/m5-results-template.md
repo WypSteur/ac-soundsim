@@ -7,6 +7,9 @@ Volumes AC / sortie Windows / autres mods :
 Gain / guard / cabine (trim,mids,highs,crossover,body) :
 Spatial/cone/distance/source offset / caméra :
 Captures associées :
+Procédure : docs/m5-test-protocol.md ; dossier/json/verdict : scripts/m5_session.py
+Le JSON contient 23 cases précises, les notes ci-dessous peuvent être jointes comme
+preuve détaillée mais ne remplacent pas leur saisie PASS/FAIL/PENDING.
 
 | Bloc / essai | Résultat initial | Preuve / observation / défaut |
 | --- | --- | --- |
@@ -19,6 +22,7 @@ Captures associées :
 | M5B avant/arrière de l'échappement | PENDING | |
 | M5B proche/loin/proche | PENDING | |
 | M5B Doppler continu, pas de saut volume/pose | PENDING | |
+| M5B transitions cabine/externe | PENDING | |
 | M5C continu EngineInt/Ext absent | PENDING | |
 | M5C backfire/limiter distinct | PENDING | |
 | M5C transmission/gear | PENDING | |
@@ -32,6 +36,7 @@ Captures associées :
 | M5D runtime stop/restart + restauration native | PENDING | |
 | M5D sortie/réentrée en session | PENDING | |
 | M5D panne/perte stream -> fallback natif | PENDING | |
+| M5D 10min de cadence normale sans nouveau late/fault/anomalie | PENDING | |
 
 Remplacer PENDING uniquement par preuve explicite, pas par impression globale.
 PASS de chaque bloc : M5A ___ / M5B ___ / M5C ___ / M5D ___

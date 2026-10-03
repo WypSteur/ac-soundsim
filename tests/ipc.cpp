@@ -172,11 +172,75 @@ void integration(const std::string& executable,bool cadenceProbe=false) {
     check(h->publishedBytes==0,"runtime did not stop CSP stream");
     std::cout<<"PASS separate-process state -> actual FA20 PCM MMF; RPM step, pause, reset, wrong car, stale, NaN, replay, restart generation, graceful stop\n";
 }
+void processRestart(const std::string& executable) {
+    const auto stateName=unique("restart-state"),statusName=unique("restart-status");
+    ipc::Mapping state,status,oldAudio,newAudio;
+    state.create(stateName,sizeof(ipc::State));
+    auto packet=target(); ipc::Status observed{};
+    struct Child {
+        HANDLE process{}; std::string statusName;
+        ~Child() {
+            if(!process) return;
+            HANDLE stop=OpenEventA(EVENT_MODIFY_STATE,FALSE,("Local\\"+statusName+".Stop").c_str());
+            if(stop) { SetEvent(stop); CloseHandle(stop); }
+            WaitForSingleObject(process,25000); CloseHandle(process);
+        }
+    } child;
+    child.statusName=statusName;
+    auto launch=[&]() {
+        const auto logs=std::filesystem::current_path()/"artifacts"/"ipc-tests"/statusName;
+        std::string command="\""+executable+"\" --seconds 20 --logs \""+logs.string()+"\" --state-name "+stateName+" --status-name "+statusName;
+        STARTUPINFOA startup{}; startup.cb=sizeof(startup); PROCESS_INFORMATION process{};
+        check(CreateProcessA(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)!=0,"restart child launch");
+        CloseHandle(process.hThread); child.process=process.hProcess;
+    };
+    auto running=[&](const std::string& previousName) {
+        const auto begin=std::chrono::steady_clock::now(); bool seen=false;
+        while(std::chrono::steady_clock::now()-begin<std::chrono::seconds(3)) {
+            packet.timestampSeconds+=.020; packet.writerClock+=.020; ipc::publish(state.data(),packet);
+            if(!status.data()) status.open(statusName,sizeof(ipc::Status),false);
+            if(status.data() && ipc::snapshot(status.data(),observed) && observed.mode==1 && !observed.faults && observed.frames>294
+                && std::string(observed.audioName)!=previousName) { seen=true; break; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        check(seen,"new child never published a healthy fresh stream");
+    };
+    launch(); running("");
+    const auto oldName=std::string(observed.audioName); const auto oldGeneration=observed.generation;
+    check(oldAudio.open(oldName,ipc::CspStream::kSize,false),"old audio read view");
+    HANDLE stop=OpenEventA(EVENT_MODIFY_STATE,FALSE,("Local\\"+statusName+".Stop").c_str());
+    check(stop!=nullptr,"restart stop event"); SetEvent(stop); CloseHandle(stop);
+    check(WaitForSingleObject(child.process,5000)==WAIT_OBJECT_0,"restart graceful stop");
+    check(static_cast<const ipc::CspAudioHeader*>(oldAudio.data())->publishedBytes==0,"old stream not silenced");
+    CloseHandle(child.process); child.process=nullptr;
+    // Retain the STATUS and OLD AUDIO views as CSP does. Producer must reuse
+    // only the status mapping while creating a distinct new audio mapping.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    launch(); running(oldName);
+    check(observed.generation!=oldGeneration && observed.requestedRpm==3000,"restart generation/RPM provenance");
+    check(newAudio.open(observed.audioName,ipc::CspStream::kSize,false),"fresh audio view");
+    // Hard failure ONLY of our unique disposable child; never the live runtime.
+    check(TerminateProcess(child.process,9)!=0,"isolated crash simulation");
+    check(WaitForSingleObject(child.process,5000)==WAIT_OBJECT_0,"crash timeout");
+    // A hard kill can leave an odd seqlock commit. Such a snapshot is correctly
+    // unreadable, not a test failure: after process death ALL bytes must freeze.
+    // These raw copies are diagnostic only, never accepted as coherent status.
+    ipc::Status atCrash{}; std::memcpy(&atCrash,status.data(),sizeof(atCrash));
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+    ipc::Status frozen{}; std::memcpy(&frozen,status.data(),sizeof(frozen));
+    check(std::memcmp(&atCrash,&frozen,sizeof(frozen))==0,"crashed writer was not frozen");
+    CloseHandle(child.process); child.process=nullptr;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const auto crashedName=std::string(observed.audioName);
+    launch(); running(crashedName);
+    std::cout<<"PASS real process stop/restart/crash/restart with retained status/audio views; bridge heartbeat fallback tested separately\n";
+}
 }
 int main(int argc,char** argv) {
     try {
         if(argc==3 && std::string(argv[1])=="--runtime") integration(argv[2]);
         else if(argc==3 && std::string(argv[1])=="--cadence") integration(argv[2],true);
+        else if(argc==3 && std::string(argv[1])=="--restart") processRestart(argv[2]);
         else unit();
         return 0;
     } catch(const std::exception& error) {std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}

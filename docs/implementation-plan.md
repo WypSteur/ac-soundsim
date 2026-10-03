@@ -4,6 +4,7 @@
 
 The repository remains public by explicit user decision. Preserve the accepted
 bridge 0.0.10 listening base and the complementary FMOD/mod event levels.
+Bridge0.0.11 preserves that base and adds transport/native-restoration guards.
 No second engine/car and no independent intake audio before the M5 gate.
 
 ## M0 — Observable baseline (user-confirmed)
@@ -54,6 +55,7 @@ CSP graph ordering or global output headroom. See cabin-spatial-calibration.md.
 ## M5 — Drivable/native qualification (OPEN)
 
 Four independent gates, specified in m5-validation.md:
+Engineering/tooling is ready; use m5-test-protocol.md for one native session.
 
 - M5A engine dynamics: rapid acceleration, gears, decel/reprise, no duplicate/
   missed impulses/clicks/holes/pitch jumps. The traced90Hz duplicate is corrected.
@@ -66,6 +68,10 @@ Four independent gates, specified in m5-validation.md:
 - M5D latency/robustness: QPC-aligned opt-in runtime+loopback capture and manually
   annotated audio onset; latency measured/accepted, plus pause/restart/session/
   native fallback. Automated IPC passes do not replace native acceptance.
+  Actual isolated process restart/crash and bridge health/recovery are covered.
+
+scripts/m5_session.py provides23mandatory cases, local evidence and a final
+completeness gate. Batch latency needs >=5 matched events and explicit acceptance.
 
 No whole bloc/native PASS claimed yet. The1Hz snapshot collector cannot measure
 latency; the new capture tool never records automatically or uploads personal

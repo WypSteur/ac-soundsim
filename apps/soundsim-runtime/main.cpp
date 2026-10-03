@@ -196,7 +196,8 @@ int run(int argc, char** argv) {
                  << " effective=" << status.effectiveRpm << " phase=" << status.phase
                  << " frames=" << status.frames << " renderMs=" << status.renderMs
                  << " maxRenderMs=" << status.maxRenderMs << " producerLateBlocks=" << status.lateBlocks
-                 << " torn=" << status.tornStates << " dropped=" << status.droppedStates << " faults=" << status.faults;
+                 << " torn=" << status.tornStates << " dropped=" << status.droppedStates << " faults=" << status.faults
+                 << " firing_sequence_anomalies=" << (engine ? engine->diagnostics().firingOrderErrors : 0);
             SS_LOG_INFO("runtime", line.str());
         }
         next += period;

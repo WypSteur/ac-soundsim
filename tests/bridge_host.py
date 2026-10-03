@@ -78,12 +78,36 @@ ui={text=function() end,separator=function() end,textWrapped=function() end,
 payload = json.load(sys.stdin)
 lua.globals().acoustics = lua.execute(payload['acoustics'])
 lua.execute("package.loaded.acoustics=acoustics")
+lua.globals().transportHealth = lua.execute(payload['health'])
+lua.execute("package.loaded.transport_health=transportHealth")
 lua.execute(payload['bridge'])
+lua.execute(r'''
+-- Mock published frame counters follow mock wall time unless a test stalls them.
+autoPCM=true
+local update=script.update
+function script.update(dt)
+  local r=mappings['AcTools.ACSoundSim.Status.v1']
+  if autoPCM and r and r.commit%2==0 then r.frames=math.floor(clock*44100)+294 end
+  update(dt)
+end
+''')
 lua.execute(r'''
 function ownGain(e)
   return e.volume*10^((e.params['2:0']+e.params['3:0']+e.params['4:0'])/20)
 end
 function approx(a,b) return math.abs(a-b)<0.000001 end
+local health=transportHealth.new()
+local probe={generation=1,audioName='test',resets=1,frames=100,late=0,modeID=1}
+assert(transportHealth.check(health,probe,0))
+probe.frames=200; assert(transportHealth.check(health,probe,.2))
+assert(not transportHealth.check(health,probe,.501),'PCM stall not rejected')
+probe.frames=300; assert(not transportHealth.check(health,probe,.6),'fault did not latch')
+probe.generation=2; assert(transportHealth.check(health,probe,.7),'new producer not recovered')
+probe.frames=1000; probe.late=20
+assert(not transportHealth.check(health,probe,1.8),'sustained lost blocks not rejected')
+probe.resets=2; assert(transportHealth.check(health,probe,2),'engine reset not recovered')
+probe.modeID=2; assert(not transportHealth.check(health,probe,3))
+probe.modeID=1; probe.frames=1200; assert(transportHealth.check(health,probe,4),'pause created false stall')
 local cfg=acoustics.defaults()
 assert(not acoustics.isCabin(car,sim,ac))
 sim.cameraMode=0; assert(acoustics.isCabin(car,sim,ac))
@@ -235,25 +259,107 @@ assert(reports['logs/ac_soundsim_bridge.txt']:find('sourcePeak=0.50000'),'real P
 assert(stream.publishedBytes==16 and stream.samples[1]==-.5,'producer ring was mutated')
 assert(fxOriginal(),'cabin/guard/spatial controls affected complementary FMOD')
 -- Native fallback for replay, engine faults, diagnostics and producer restart.
+-- Continuous moving/rotating source, front/rear, near/far: no event recreation
+-- and unchanged DSP/native FX. Mock proves poses/config, not native Doppler.
+local flyby=events[#events]; local flybyCount=#events
+sim.cameraPosition=vec3(0,0,0)
+for i=1,120 do
+  local angle=i*math.pi/60
+  car.look=vec3(math.sin(angle),0,math.cos(angle)); car.velocity=vec3(0,0,-20)
+  car.bodyTransform={transformPoint=function(self,p)
+    return vec3(p.z*math.sin(angle),2+p.y,120-i*2+p.z*math.cos(angle))
+  end}
+  clock=clock+1/60; r.heartbeat=r.heartbeat+1; script.update(1/60)
+  assert(#events==flybyCount and not flyby.disposed and flyby.playing)
+  assert(approx(flyby.dir.x,-math.sin(angle)) and approx(flyby.dir.z,-math.cos(angle)) and flyby.vel.z==-20)
+  assert(fxOriginal())
+end
+-- Genuine transport degradation must restore native, stay latched, then retry.
+autoPCM=false; local stalled=events[#events]
+clock=clock+.31; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(stalled.disposed and nativeGains[0]==.4 and nativeGains[1]==.6,'PCM stall did not restore native')
+autoPCM=true; clock=clock+.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(events[#events].disposed,'stalled transport auto-reacquired')
+clicked='Retry SoundSim after transport fault'; windowMain(); script.update(1/60)
+assert(events[#events].playing and nativeGains[0]==0 and nativeGains[1]==0,'explicit health retry failed')
+local overloaded=events[#events]
+clock=clock+1.1; r.lateBlocks=r.lateBlocks+20; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(overloaded.disposed and nativeGains[0]==.4 and nativeGains[1]==.6 and fxOriginal(),'cadence degradation did not restore native')
+r.generation=r.generation+1; r.lateBlocks=0; clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(events[#events].playing and nativeGains[0]==0,'new generation did not recover health')
+-- Restore monotonically increasing mock clock for the following legacy cases.
+clock=math.max(clock,8); r.heartbeat=r.heartbeat+1; script.update(1/60)
 sim.isReplayActive=true; script.update(1/60)
 assert(events[#events].disposed and s.flags==11 and nativeGains[0]==.4 and nativeGains[1]==.6,'replay did not release replacement')
-sim.isReplayActive=false; r.mode=6; r.heartbeat=7; clock=7.8; script.update(1/60)
+sim.isReplayActive=false; r.mode=6; r.heartbeat=7; clock=clock+1.1; script.update(1/60)
 assert(nativeGains[0]==.4 and nativeGains[1]==.6,'fault did not preserve native fallback')
-r.mode=1; r.flags=1; r.heartbeat=8; clock=8.9; script.update(1/60)
+r.mode=1; r.flags=1; r.heartbeat=8; clock=clock+1.1; script.update(1/60)
 assert(nativeGains[0]==.4 and nativeGains[1]==.6,'diagnostic tone muted real engine')
 r.flags=2; script.update(1/60); assert(nativeGains[0]==0 and nativeGains[1]==0)
 local previous=events[#events]
-ffi.copy(r.audioName,'AcTools.ACSoundSim.Audio.restarted\0'); r.heartbeat=9; clock=10; script.update(1/60)
+ffi.copy(r.audioName,'AcTools.ACSoundSim.Audio.restarted\0'); r.heartbeat=9; clock=clock+1.1; script.update(1/60)
 assert(previous.disposed and events[#events].playing and fxOriginal(),'producer restart retained old event / modified FX')
+-- Expected failure paths log, unlike the strict default test error handler.
+ac.error=function(message) table.insert(logs,message) end
+local originalGet,originalSet=ac.CarAudioTweak.getVolume,ac.CarAudioTweak.setVolume
+local failRead=true
+ac.CarAudioTweak.getVolume=function(id)
+  if id==0 and failRead then failRead=false; error('transient native read failure') end
+  return originalGet(id)
+end
+clicked='Mute SoundSim test source'; windowMain(); script.update(1/60)
+assert(nativeGains[0]==0 and nativeGains[1]==.6,'restoration failure was not retained')
+script.update(1/60)
+assert(nativeGains[0]==.4 and nativeGains[1]==.6,'read failure discarded original gain ledger')
+ac.CarAudioTweak.getVolume=originalGet
+clicked='Enable SoundSim test source'; windowMain(); clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+local failRestore=true
+ac.CarAudioTweak.setVolume=function(id,value)
+  if id==0 and value~=0 and failRestore then failRestore=false; error('transient native write failure') end
+  originalSet(id,value)
+end
+clicked='Mute SoundSim test source'; windowMain(); script.update(1/60)
+assert(nativeGains[0]==0 and nativeGains[1]==.6,'failed restoration write was not retained')
+script.update(1/60)
+assert(nativeGains[0]==.4 and nativeGains[1]==.6,'write failure discarded original gain ledger')
+-- A setter silently doing nothing is not successful restoration either.
+ac.CarAudioTweak.setVolume=originalSet
+clicked='Enable SoundSim test source'; windowMain(); clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+local dropRestore=true
+ac.CarAudioTweak.setVolume=function(id,value)
+  if id==0 and value~=0 and dropRestore then dropRestore=false; return end
+  originalSet(id,value)
+end
+clicked='Mute SoundSim test source'; windowMain(); script.update(1/60)
+assert(nativeGains[0]==0 and nativeGains[1]==.6,'unverified native restoration accepted')
+script.update(1/60)
+assert(nativeGains[0]==.4 and nativeGains[1]==.6,'native restoration readback did not trigger retry')
+-- A partially applied mute must roll back both original values on exception.
+local failMute=true
+ac.CarAudioTweak.setVolume=function(id,value)
+  if id==1 and value==0 and failMute then failMute=false; error('partial native mute failure') end
+  originalSet(id,value)
+end
+clicked='Enable SoundSim test source'; windowMain(); clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(events[#events].disposed and nativeGains[0]==.4 and nativeGains[1]==.6 and fxOriginal(),'partial mute did not roll back')
+ac.CarAudioTweak.setVolume=originalSet
+clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(nativeGains[0]==0 and nativeGains[1]==0,'recovery after partial mute failed')
+local transform=car.bodyTransform
+car.bodyTransform={transformPoint=function() return vec3(0/0,0,0) end}
+script.update(1/60)
+assert(events[#events].disposed and nativeGains[0]==.4 and nativeGains[1]==.6 and fxOriginal(),'invalid transform kept replacement active')
+car.bodyTransform=transform; clock=clock+1.1; r.heartbeat=r.heartbeat+1; script.update(1/60)
+assert(events[#events].playing and nativeGains[0]==0 and nativeGains[1]==0,'emitter transform recovery failed')
 sim.isPaused=false; sim.dt=1/60; car.id=function() return 'wrong_car' end
 local beforeEvents=#events
-r.heartbeat=10; clock=10.1; script.update(1/60)
+r.heartbeat=10; clock=clock+.1; script.update(1/60)
 assert(#events==beforeEvents,'wrong car attached audio')
-car=nil; clock=10.5; script.update(1/60)
+car=nil; clock=clock+.4; script.update(1/60)
 assert(s.flags==2,'despawn still active')
 release(); assert(s.flags==0)
 assert(reports['logs/ac_soundsim_bridge.txt']:find('%[ACSoundSim%]'))
 assert(fxOriginal(),'FX changed on target loss / release')
 assert(reports['logs/ac_soundsim_bridge.txt']:find('FMOD_FX=untouched'),'output-only policy missing from report')
 ''')
-print('PASS LuaJIT FFI bridge: cabin A/B/camera smoothing, DSP units/gain/guard, live spatial controls, read-only PCM meter, complementary/arbitrary FMOD unchanged')
+print('PASS LuaJIT FFI bridge: cabin/DSP/guard, moving 3D poses, read-only PCM meter, transport latch/retry, native fallback/transient API errors, arbitrary FMOD unchanged (NOT native audio qualification)')

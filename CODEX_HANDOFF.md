@@ -52,7 +52,48 @@ distance / Doppler / cone / occlusion / reverb
 
 ## Current status
 
-### Native crackling / cadence correction — 2026-10-03 (latest)
+### M5 engineering completion / native qualification kit — 2026-10-04 (latest)
+
+User asked to complete ALL four M5 engineering blocks together, then provide one
+test protocol. User confirms the sound returned after the scheduler fix below;
+this is NOT a native PASS of the whole M5. Read docs/m5-test-protocol.md first.
+No intake/second car, no source/gas/IR/DSP/level changes in this tranche.
+Runtime1Hz logs now expose firing_sequence_anomalies; bridge also shows faults.
+These counters assist native evidence, never a1Hz latency measurement.
+
+Bridge0.0.11 preserves the accepted0.0.10 listening base. New pure producer-health
+guard latches PCM stall (>300ms) or gross cadence failure (>=100ms missing/s),
+disposes our audio and releases ONLY our native EngineInt/Ext zero gains. Retry
+is explicit or a new producer/engine reset. This cutoff is NOT an acceptable
+dropout budget: qualification requires zero new late blocks. Native restoration
+keeps the original gain ledger through transient API read/write errors and
+retries; a persistent API failure stays visible as RESTORE PENDING, not success.
+Mock includes moving/rotating world poses, latch/retry, partial mute rollback,
+transient restore errors and invalid emitter fallback. No native DSP/Doppler PASS.
+
+M5D_process_restart exercises actual isolated runtime stop/restart/crash/restart
+with retained status/old audio mappings. A killed writer may leave an odd seqlock;
+the test checks frozen bytes diagnostically, not a fabricated coherent status.
+Never terminate another user's process in this test. Source M5A remains16cases.
+
+scripts/analyze_m5_latency.py --annotations supports >=5 manually matched onsets,
+median/p95/max and annotation uncertainty. Rejects restart/fault/late/pause and
+invalid audio windows. No blind correlation, automatic PASS or invented threshold.
+scripts/m5_session.py creates an ignored local dossier with23mandatory cases,
+commit/hashes/configuration and fresh0.0.11 bridge snapshots. Only source can
+auto-PASS; overall gate requires native declarations/evidence plus >=5 measures
+and explicit latency acceptance. PASS_DECLARED_WITH_EVIDENCE checks completeness
+of human verdicts, not independently verified acoustics. Empty dossier stays OPEN.
+Personal audio remains local; no automatic recording/upload. No native latency
+measurement yet. Protocol takes about45–60min plus manual latency annotation.
+Local verification:15/15 CTest Release and Debug, source16/16 with zero anomalies,
+restart/crash10repetitions per configuration, LuaJIT bridge and8Python tests PASS.
+After the diagnostic-only runtime log addition, IPC integration/restart rerun in
+both configurations also passes. Reinstall bridge only while AC is closed; keep
+the previous backup. Normal Release runtime should be left active with -Audit,
+no service/autostart and no automatic recording. Native dossier starts OPEN.
+
+### Native crackling / cadence correction — 2026-10-03 (before M5 kit above)
 
 User reported entirely stuttering/crackling live sound. Treat native M5A/M5D as
 FAIL before scheduler fix, not overridden by CI. See docs/runtime-cadence.md.

@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 import struct
 from pathlib import Path
 
@@ -69,6 +70,14 @@ def measure(metadata,packets,telemetry,heartbeat,audio_frame,generation=None,max
     delay=(onset-start)*1000
     if not 0<=delay<=2000:
         raise ValueError('Onset precedes input or is >2s later: verify matching event/clocks')
+    if wav_position(packets,int(metadata['sample_rate']),start)[0] is None:
+        raise ValueError('Input event lies outside valid captured audio')
+    for observed in telemetry:
+        timestamp=float(observed['qpc_input_s'])
+        if start<=timestamp<=onset and (int(observed['generation'])!=int(row['generation']) or
+                                      int(observed['mode'])!=1 or int(observed['faults']) or int(observed['ignition_anomalies'])
+                                      or int(observed.get('late_blocks',0))>int(row.get('late_blocks',0))):
+            raise ValueError('Runtime restart/fault/pause/deadline miss crosses measurement window')
     for packet in packets:
         packet_time=packet['qpc_100ns']/1e7
         packet_end=packet_time+packet['frames']/int(metadata['sample_rate'])
@@ -85,6 +94,26 @@ def measure(metadata,packets,telemetry,heartbeat,audio_frame,generation=None,max
                 chosen_threshold_ms=max_ms,within_chosen_threshold=None if max_ms is None else delay<=max_ms,
                 onset_identification='MANUAL_REVIEW_REQUIRED',m5_status='PENDING_MANUAL_REVIEW')
 
+def measure_batch(metadata,packets,telemetry,annotations,max_ms=None):
+    if not annotations: raise ValueError('No manually annotated events')
+    events=[]; seen=set()
+    for item in annotations:
+        key=(int(item['generation']),int(item['heartbeat']))
+        if key in seen: raise ValueError('Duplicate annotated input event')
+        seen.add(key)
+        report=measure(metadata,packets,telemetry,key[1],int(item['audio_frame']),key[0],max_ms)
+        uncertainty=int(item.get('uncertainty_frames') or 0)
+        if uncertainty<0: raise ValueError('Negative onset uncertainty')
+        report['onset_uncertainty_ms']=1000*uncertainty/int(metadata['sample_rate'])
+        report['comment']=item.get('comment','')
+        events.append(report)
+    values=sorted(e['latency_ms'] for e in events)
+    return dict(event_count=len(events),minimum_ms=values[0],median_ms=statistics.median(values),
+                p95_ms=values[math.ceil(.95*len(values))-1],maximum_ms=values[-1],
+                chosen_threshold_ms=max_ms,within_chosen_threshold=None if max_ms is None else all(v<=max_ms for v in values),
+                events=events,m5_status='PENDING_MANUAL_REVIEW',
+                scope='runtime-observed input -> manually annotated system-loopback onset; physical pedal/ear excluded')
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('capture',type=Path)
@@ -93,8 +122,18 @@ def main():
     parser.add_argument('--generation',type=int)
     parser.add_argument('--max-ms',type=float,help='Explicit user-chosen acceptance threshold; no default')
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--annotations',type=Path,help='CSV generation,heartbeat,audio_frame,uncertainty_frames,comment')
     args=parser.parse_args()
     metadata,packets,telemetry=read_capture(args.capture)
+    if args.annotations:
+        if args.input_heartbeat is not None or args.audio_frame is not None or args.generation is not None:
+            parser.error('--annotations cannot be combined with single-event options')
+        with args.annotations.open(newline='',encoding='utf-8-sig') as source:
+            report=measure_batch(metadata,packets,telemetry,list(csv.DictReader(source)),args.max_ms)
+        text=json.dumps(report,indent=2,allow_nan=False); print(text)
+        if args.output:
+            with args.output.open('x',encoding='utf-8') as out: out.write(text+'\n')
+        return 0
     if args.input_heartbeat is None and args.audio_frame is None:
         # Manual editor alignment uses the same zero as the first WAV packet.
         origin=packets[0]['qpc_100ns']/1e7

@@ -15,7 +15,8 @@ python -m pip install --target tools/build-runtime -r requirements-dev.txt
 ```
 
 See `CODEX_HANDOFF.md` before continuing development. The user-approved listening
-base is bridge0.0.10. Next gate is M5 dynamic/native qualification, then further
+base is bridge0.0.10, preserved in0.0.11 with producer health supervision.
+Next gate is M5 dynamic/native qualification, then further
 FA20 profile extraction, then a separate intake bus (not implemented).
 The repository remains public by explicit user decision.
 
@@ -39,6 +40,10 @@ prepare QPC-aligned measurements; no system audio recording starts automatically
 Native stuttering exposed a runtime wake/deadline regression, now corrected with
 a high-resolution timer + scoped MMCSS. See `docs/runtime-cadence.md`; the fixed
 build still requires native listening, and M5 is not validated by CI alone.
+M5 engineering now includes the guarded bridge0.0.11, real process restart/crash
+tests, multi-onset latency analysis and a 23-case evidence dossier. Run the single
+native procedure in `docs/m5-test-protocol.md`; `scripts/m5_session.py` keeps the
+gate OPEN until all manual cases and measured/accepted latency are supplied.
 No intake work starts before that qualification. Third-party license notices are
 under `licenses/`; the license for our own code still awaits the user's choice.
 
@@ -60,7 +65,7 @@ externally imposed crank/piston kinematics and synchronous PCM rendering.
 .\scripts\build_m1.ps1 -GenerateAudio
 ```
 
-This builds, runs fourteen C++/CLI tests and generates an `800 -> 7400 -> 800 RPM` recording
+This builds, runs fifteen C++/CLI tests and generates an `800 -> 7400 -> 800 RPM` recording
 under `artifacts/m1/`. See `docs/m1-headless.md` for provenance, architecture,
 acceptance evidence and provisional FA20 acoustic parameters.
 

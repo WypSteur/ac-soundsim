@@ -11,7 +11,7 @@ if (-not (Test-Path (Join-Path $AssettoRoot "acs.exe"))) {
   throw "Invalid Assetto Corsa root: acs.exe not found."
 }
 
-if (Get-Process acs -ErrorAction SilentlyContinue) {
+if (Get-Process -Name acs,acs_x86 -ErrorAction SilentlyContinue) {
   throw 'Exit the AC session before installing the bridge.'
 }
 if (Test-Path -LiteralPath $target) {

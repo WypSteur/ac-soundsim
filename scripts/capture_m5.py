@@ -22,7 +22,7 @@ def summarize(snapshots):
                 observed_runtime_modes=values(r'\bruntime=(\w+)'),
                 observed_car_ids=values(r'\bcar=(\S+)'),
                 observed_camera_modes=values(r'\bcameraMode=(\d+)'),
-                observed_native_states=values(r'\bnative=(ON|OFF)'),
+                observed_native_states=values(r'\bnative=(MUTED|ON|OFF)'),
                 snapshots_with_last_error=sum(bool(re.search(r'lastError=\S', row['bridge'])) for row in snapshots),
                 m5_status='PENDING_MANUAL_LISTENING_REVIEW',
                 latency_doppler_distance_and_mix='NOT_MEASURED_BY_THIS_COLLECTOR')

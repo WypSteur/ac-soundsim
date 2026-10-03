@@ -3,19 +3,25 @@
 La GT86 ne devient la reference implementation complète qu'après PASS de
 **M5A + M5B + M5C + M5D**. Une bonne impression sonore générale ne remplace pas
 ces critères. CI/source, mock et écoute native sont trois niveaux de preuve.
+La procédure pratique complète, en une session, est dans `m5-test-protocol.md`.
 
 | Bloc | Preuves disponibles | Statut global |
 | --- | --- | --- |
-| M5A dynamique moteur | Gate source multi-cadences Release/Debug ; saccades natives signalées | FAIL natif avant fix cadence — nouvel essai requis |
+| M5A dynamique moteur | Gate source Release/Debug ; utilisateur confirme le son revenu après fix | SOURCE PASS — qualification dynamique complète à faire |
 | M5B propagation CSP | Paramètres/pose testés en mock | À VALIDER EN JEU |
 | M5C mix hybride | Ownership/fallback + autres FMOD intacts testés en mock | À VALIDER À L'OREILLE |
-| M5D latence/robustesse | Délais producer corrigés/testés ; capture/analyse préparées | FAIL cadence avant fix — nouvel essai et mesures requis |
+| M5D latence/robustesse | Cadence réparée, vrai restart/crash + garde producer testés | TECHNIQUE PRÊTE — protocole natif/mesures requis |
 
 Aucune ligne n'est marquée PASS natif sans session, paramètres, preuves et retour
 d'écoute. Aucun seuil de latence arbitraire n'est choisi automatiquement.
 Le retour « complètement saccadé/craquelé » a révélé une défaillance du scheduler
 runtime, pas une validation M5. Voir `runtime-cadence.md` : l'ancien réveil perd
-des blocs même sans fault des gaz. Le fix est déployé mais son écoute reste à faire.
+des blocs même sans fault des gaz. Le retour utilisateur confirme désormais le
+son revenu. Cela ne valide pas toutes les séquences M5. Bridge0.0.11 ajoute une
+garde de transport sans changer le DSP/niveaux : défaut PCM/cadence marqué,
+libération native, retry explicite ou nouveau producteur/reset.
+Une erreur transitoire de l'API de restauration conserve les gains originaux
+pour réessayer. Une panne persistante reste `RESTORE PENDING`, jamais un PASS.
 
 ## Référence et préparation commune
 
@@ -132,6 +138,9 @@ Essais natifs requis : coup de gaz brutal → réponse sonore ; rapport → réa
 immédiatement cohérente ; pause/reprise ; runtime stoppé/redémarré ; sortie/
 réentrée de session ; restauration native automatique quand SoundSim tombe.
 Les tests IPC/mock couvrent ces états mais pas l'audibilité de la restauration.
+`M5D_process_restart` arrête, relance, termine brutalement puis relance un vrai
+child isolé en conservant les vues status/audio. Le mock couvre mute/restauration
+et la garde PCM/cadence. Leurs PASS ne remplacent pas le verdict auditif.
 
 ### Capture synchronisée
 
@@ -191,12 +200,19 @@ Ce n'est ni un curseur consommateur, ni le délai total pédale→oreille. Véri
 que l'onset appartient au moteur moddé et non à un FX/autre app ; refaire plusieurs
 coups de gaz, consigner dispersion/incertitude et acceptation à l'oreille.
 Aucune valeur de latence n'a encore été mesurée dans une session native M5.
+Le mode `--annotations` mesure plusieurs événements manuellement appariés et
+publie médiane/p95/max/dispersion ; le dossier M5 exige au moins5événements et
+une acceptation explicite, sans seuil automatique. Voir le protocole pratique.
 
 ## Journal et gate final
 
 Conserver pour chaque case : PASS/FAIL/PENDING/N/A justifié, prise/capture,
 conditions/réglages/versions, observation précise, validateur. Une fiche vierge
-est dans `m5-results-template.md`. Les snapshots complémentaires :
+est dans `m5-results-template.md`.
+Le nouvel outil `m5_session.py` crée un dossier versionné/configuré, attache le
+rapport source, copie des snapshots frais et vérifie les23cases de results.json.
+Il ne lance ni jeu, ni runtime, ni capture ; seul A.source peut PASS automatiquement.
+L'ancien collecteur reste utilisable pour une série de snapshots complémentaires :
 
 ```powershell
 python scripts/capture_m5.py --label m5b-flyby --seconds 120

@@ -1,5 +1,6 @@
 local ffi = require('ffi')
 local acoustics = require('acoustics')
+local transportHealth = require('transport_health')
 local TAG, target = '[ACSoundSim]', 'ks_toyota_gt86'
 local stateName, statusName = 'AcTools.ACSoundSim.State.v1', 'AcTools.ACSoundSim.Status.v1'
 local MAGIC = 0x53534143
@@ -27,6 +28,8 @@ local state, backend, event, eventName
 local sequence, lastLog, nextOpen, nextAudio = 0,-1,0,0
 local lastHeartbeat, heartbeatAt = '',-1
 local lastGoodBackend
+local health=transportHealth.new()
+local healthState='waiting'
 local enabled = true
 -- Listening gain only: leave upstream PCM/combustion and AC's global mix alone.
 local outputGain = 8.0 -- user was already at 4x: double that output, FMOD untouched
@@ -37,6 +40,7 @@ local sourcePCM, sourceMeter, sourceMeterError
 local cameraOverride = 'auto'
 -- Session-only listening test. Never changes banks, car config or global volume.
 local nativeTest, nativeSaved = true,nil
+local nativeRestorePending=false
 local nativeState = 'ON (waiting for SoundSim)'
 local info = {carID='<none>',rpm=0,gas=0,gear=0,isTarget=false,error='',valid=false,playing=false}
 local meter, emitter = 'not measured','not positioned'
@@ -49,24 +53,38 @@ end
 local function finite(v) return type(v)=='number' and v==v and v~=math.huge and v~=-math.huge end
 local function vectorOK(v) return v and finite(v.x) and finite(v.y) and finite(v.z) end
 local function restoreNative()
-  if not nativeSaved then return end
+  if not nativeSaved then nativeRestorePending=false; return true end
   local car=ac.getCar(0)
+  local pending={}
+  local api=ac.CarAudioTweak or {}
   if car and car:id()==target then
     for _,s in ipairs(nativeSaved) do
       -- Do not overwrite another script/user change made while we owned zero.
-      local ok,value=pcall(ac.CarAudioTweak.getVolume,s.id)
-      if ok and value==0 then pcall(ac.CarAudioTweak.setVolume,s.id,s.value) end
+      local ok,value=pcall(api.getVolume,s.id)
+      if not ok or not finite(value) then pending[#pending+1]=s
+      elseif value==0 then
+        local restored=pcall(api.setVolume,s.id,s.value)
+        local verified,current=pcall(api.getVolume,s.id)
+        if not restored or not verified or not finite(current) or (current==0 and s.value~=0) then
+          pending[#pending+1]=s
+        end
+      end
     end
   end
-  nativeSaved=nil
-  nativeState='ON (restored / released)'
+  nativeRestorePending=#pending>0
+  nativeSaved=nativeRestorePending and pending or nil
+  nativeState=nativeRestorePending and 'RESTORE PENDING (native API error; retrying)' or 'ON (restored / released)'
+  return not nativeRestorePending
 end
 local function updateNative(car,sim,r)
+  -- Keep original gains through a transient restoration API error. Finish
+  -- releasing ownership before considering a new mute; never lose the ledger.
+  if nativeRestorePending then restoreNative(); return end
   local wanted=nativeTest and enabled and car and car.isConnected and car:id()==target
     and r and r.modeID==1 and not r.diagnosticTone and info.valid and info.playing
     and not sim.isPaused and not sim.isReplayActive and sim.dt~=0
   if not wanted then
-    restoreNative()
+    if not restoreNative() then return end
     nativeState=nativeTest and 'ON (waiting for SoundSim)' or 'ON (test disabled)'
     return
   end
@@ -85,7 +103,9 @@ local function updateNative(car,sim,r)
     log(string.format('native engine test muted; saved ext=%.4f int=%.4f',ext,int))
   end
   if api.getVolume(ids.EngineExt)~=0 or api.getVolume(ids.EngineInt)~=0 then
-    restoreNative(); nativeTest=false; nativeState='ON (gain conflict; test disabled)'
+    nativeTest=false
+    if not restoreNative() then return end
+    nativeState='ON (gain conflict; test disabled)'
     return
   end
   nativeState='MUTED EngineExt / EngineInt (gain=0 / 0)'
@@ -144,10 +164,11 @@ local function readBackend(now)
     audioName=ffi.string(backend.audioName,96):match('^[^%z]*'),
     age=tonumber(backend.stateAgeSeconds),requested=tonumber(backend.requestedRpm),effective=tonumber(backend.effectiveRpm),
     phase=tonumber(backend.phase),frames=tonumber(backend.frames),late=tonumber(backend.lateBlocks),
-    renderMs=tonumber(backend.renderMs),faults=tonumber(backend.faults),error=ffi.string(backend.error,128):match('^[^%z]*')
+    renderMs=tonumber(backend.renderMs),faults=tonumber(backend.faults),resets=tonumber(backend.resets),error=ffi.string(backend.error,128):match('^[^%z]*')
   }
   if before~=tonumber(backend.commit) then return nil end
   if r.magic~=MAGIC or r.version~=1 or r.size~=368 then report('unsupported runtime status ABI'); return nil end
+  if not finite(r.frames) or not finite(r.late) or r.frames<0 or r.late<0 then report('invalid producer counters'); return nil end
   local key=tostring(r.generation)..':'..tostring(r.heartbeat)
   if key~=lastHeartbeat then lastHeartbeat,heartbeatAt=key,now end
   if now-heartbeatAt>0.3 then runtime.mode='producer stale'; return nil end
@@ -164,7 +185,11 @@ local function readBackendSafe(now)
   return r
 end
 local function updateAudio(car,sim,r,now,dt)
+  local healthy,reason=false,'waiting'
+  if r then healthy,reason=transportHealth.check(health,r,now) end
+  healthState=healthy and 'healthy' or (reason or 'waiting')
   local available=r and r.modeID==1 and info.isTarget and enabled and not sim.isPaused and not sim.isReplayActive and sim.dt~=0
+    and healthy
   if not available then disposeAudio(); return end
   if r.audioSize~=451648 or r.sampleRate~=44100 or not r.audioName:match('^AcTools%.ACSoundSim%.Audio%.') then
     disposeAudio(); report('unsupported audio stream contract'); return
@@ -240,6 +265,7 @@ function script.update(dt)
     local line=string.format('car=%s target=%s rpm=%.0f gas=%.3f gear=%s seq=%s runtime=%s frames=%s late=%s eventValid=%s playing=%s',
       info.carID,tostring(info.isTarget),info.rpm,info.gas,tostring(info.gear),tostring(sequence),runtime.mode,
       tostring(runtime.frames),tostring(runtime.late),tostring(info.valid),tostring(info.playing))
+    line=line..' faults='..tostring(runtime.faults or 0)
     line=line..string.format(' gain=%.2f spatial=%s cabin=%s cabinMix=%.3f trimDb=%.2f highDb=%.2f highHz=%.0f bodyDb=%.2f guard=%s native=%s',
       outputGain,tostring(spatial),tostring(cabinTarget),cabinMix or 0,acoustic.trimDb,acoustic.highDb,acoustic.highHz,acoustic.bodyDb,tostring(acoustic.guard),nativeState)
     line=line..string.format(' cameraMode=%s driveableMode=%s onBoard=%s override=%s midDb=%.2f bodyHz=%.0f distance=%.2f/%.0f cone=%.0f/%.0f/%.2f',
@@ -249,6 +275,7 @@ function script.update(dt)
       line=line..string.format(' sourcePeak=%.5f sourceRms=%.5f sourceNearFull=%d gainOnlyPeak=%.5f',sourceMeter.peak,sourceMeter.rms,sourceMeter.nearFull,sourceMeter.peak*outputGain)
     else line=line..' sourceMeter='..tostring(sourceMeterError or 'unavailable') end
     line=line..' FMOD_FX=untouched output_trim_only=false own_listener_DSP=true'
+    line=line..' bridgeVersion=0.0.11 transportHealth='..healthState
     log(line..' DSP='..meter..' '..emitter)
     -- AC's ac.log is visible in the debug app but not necessarily its text log.
     -- Own report keeps the latest evidence without changing global log settings.
@@ -257,7 +284,7 @@ function script.update(dt)
   end
 end
 function windowMain()
-  ui.text('AC SoundSim Bridge 0.0.10 - cabin / spatial audit'); ui.separator()
+  ui.text('AC SoundSim Bridge 0.0.11 - M5 qualification'); ui.separator()
   ui.text('Target: '..target); ui.text('Detected: '..info.carID); ui.text('GT86 target match: '..tostring(info.isTarget))
   ui.text(string.format('RPM: %.0f   Throttle: %.3f   Gear: %s',info.rpm,info.gas,tostring(info.gear)))
   ui.separator(); ui.text('Runtime: '..runtime.mode)
@@ -268,7 +295,12 @@ function windowMain()
   ui.text(string.format('AC requested / crank: %.0f / %.0f RPM',runtime.requested,runtime.effective))
   ui.text(string.format('State age: %.1f ms | render: %.2f ms',runtime.age*1000,runtime.renderMs))
   ui.text('PCM frames: '..tostring(runtime.frames)..' | producer late blocks: '..tostring(runtime.late))
+  ui.text('Engine faults: '..tostring(runtime.faults or 0))
   ui.text('CSP event valid / playing: '..tostring(info.valid)..' / '..tostring(info.playing))
+  ui.textWrapped('Producer health: '..healthState)
+  if health.reason and ui.button('Retry SoundSim after transport fault') then
+    health=transportHealth.new(); nextAudio=0
+  end
   ui.text('DSP raw meter (not guaranteed): '..meter)
   if sourceMeter then
     ui.text(string.format('Producer PCM: peak %.3f / RMS %.3f | near full scale %d',sourceMeter.peak,sourceMeter.rms,sourceMeter.nearFull))
@@ -332,4 +364,4 @@ ac.onRelease(function()
   if state then state.commit=sequence+1; state.flags=0; state.commit=sequence+2; ac.disposeMemoryMappedFile(state); state=nil end
   if backend then ac.disposeMemoryMappedFile(backend); backend=nil end
 end)
-log('bridge 0.0.10 loaded; target='..target..'; output gain=8; cabin transfer + optional own peak guard; complementary FMOD untouched; native continuous-engine test enabled')
+log('bridge 0.0.11 loaded; target='..target..'; M5 producer health guard; output gain=8; cabin/peak guard unchanged; complementary FMOD untouched')
